@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 import { audioSeek } from '@/lib/audio/bridge';
 import { selectPost, useFeedStore } from '@/lib/store/feedStore';
+import { finiteSeconds } from '@/lib/utils';
 
 export const PLAYBACK_SPEEDS = [1, 1.25, 1.5, 2] as const;
 export type PlaybackSpeed = (typeof PLAYBACK_SPEEDS)[number];
@@ -66,15 +67,16 @@ interface PlayerState {
 /** Duration a post reports before its file has loaded. */
 function reportedDuration(postId: string | null): number {
   if (!postId) return 0;
-  return selectPost(useFeedStore.getState(), postId)?.durationSec ?? 0;
+  return finiteSeconds(selectPost(useFeedStore.getState(), postId)?.durationSec);
 }
 
 export const usePlayerStore = create<PlayerState>((set, get) => {
   const clamp = (position: number): number => {
     const state = get();
+    const target = finiteSeconds(position);
     const limit = state.duration > 0 ? state.duration : reportedDuration(state.currentId);
-    if (limit <= 0) return Math.max(0, position);
-    return Math.min(limit, Math.max(0, position));
+    if (limit <= 0) return target;
+    return Math.min(limit, target);
   };
 
   return {
@@ -209,12 +211,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       const state = get();
       if (!state.currentId) return;
 
+      // The native player reports NaN for both values until a source is loaded.
+      const position = finiteSeconds(status.position, state.position);
+      const duration = finiteSeconds(status.duration, 0);
+
       const next: Partial<PlayerState> = {};
-      if (!state.isScrubbing && Math.abs(status.position - state.position) > 0.05) {
-        next.position = status.position;
+      if (!state.isScrubbing && Math.abs(position - state.position) > 0.05) {
+        next.position = position;
       }
-      if (status.duration > 0 && Math.abs(status.duration - state.duration) > 0.05) {
-        next.duration = status.duration;
+      if (duration > 0 && Math.abs(duration - state.duration) > 0.05) {
+        next.duration = duration;
       }
       if (status.isBuffering !== state.isBuffering) next.isBuffering = status.isBuffering;
       if (status.isLoaded !== state.isLoaded) next.isLoaded = status.isLoaded;

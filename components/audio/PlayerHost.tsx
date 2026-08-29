@@ -10,6 +10,7 @@ import { selectPost, useFeedStore } from '@/lib/store/feedStore';
 import { queueBounds, usePlayerStore } from '@/lib/store/playerStore';
 import { useSessionStore } from '@/lib/store/sessionStore';
 import type { AudioPost } from '@/lib/types';
+import { finiteSeconds } from '@/lib/utils';
 
 /**
  * Owns the persistent player: the native audio engine, a mini player docked
@@ -64,8 +65,9 @@ export function PlayerHost() {
 
   if (!post) return null;
 
-  const total = duration > 0 ? duration : post.durationSec;
-  const progress = total > 0 ? Math.min(1, position / total) : 0;
+  const reportedDuration = finiteSeconds(duration);
+  const total = reportedDuration > 0 ? reportedDuration : finiteSeconds(post.durationSec);
+  const progress = total > 0 ? Math.min(1, finiteSeconds(position) / total) : 0;
   const { hasNext, hasPrevious } = queueBounds(queueIds, post.id);
   // Liking is stored per account, so a guest listener sees the count only.
   const handleToggleLike = viewerId ? () => void toggleLike(post.id, viewerId) : undefined;

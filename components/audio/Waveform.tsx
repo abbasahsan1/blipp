@@ -35,7 +35,8 @@ export function Waveform({
   className,
 }: WaveformProps) {
   const values = sample(data, bars);
-  const activeCount = Math.round(Math.min(1, Math.max(0, progress)) * values.length);
+  const ratio = Number.isFinite(progress) ? Math.min(1, Math.max(0, progress)) : 0;
+  const activeCount = Math.round(ratio * values.length);
 
   return (
     <View

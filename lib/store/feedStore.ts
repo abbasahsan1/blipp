@@ -214,6 +214,9 @@ export const useFeedStore = create<FeedState>((set, get) => {
     },
 
     syncDuration: (postId, durationSec) => {
+      // NaN slips past a `<= 0` test, so the length is checked for being a real
+      // number first: an unreadable duration must never reach a post.
+      if (!Number.isFinite(durationSec)) return;
       const rounded = Math.round(durationSec);
       if (rounded <= 0) return;
       const existing =

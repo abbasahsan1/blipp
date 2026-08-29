@@ -19,7 +19,7 @@ import { LinearGradient } from '@/components/ui/primitives/LinearGradient';
 import { formatCount, formatDuration, formatListenTime, formatRelativeTime } from '@/lib/format';
 import { PALETTE } from '@/lib/palette';
 import type { AudioPost, Creator } from '@/lib/types';
-import { singleSliderValue } from '@/lib/utils';
+import { singleSliderValue, finiteSeconds } from '@/lib/utils';
 
 interface AudioReelProps {
   post: AudioPost;
@@ -76,8 +76,9 @@ function AudioReelComponent({
   const { width } = useWindowDimensions();
 
   const coverSize = Math.max(150, Math.min(width - 130, Math.round(height * 0.36)));
-  const total = isActive && duration > 0 ? duration : post.durationSec;
-  const elapsed = isActive ? Math.min(position, total) : 0;
+  const reportedDuration = isActive ? finiteSeconds(duration) : 0;
+  const total = reportedDuration > 0 ? reportedDuration : finiteSeconds(post.durationSec);
+  const elapsed = isActive ? Math.min(finiteSeconds(position), total) : 0;
   const progress = total > 0 ? Math.min(1, elapsed / total) : 0;
   const showError = isActive && Boolean(error);
   const showSpinner = isActive && isBuffering && isPlaying && !showError;

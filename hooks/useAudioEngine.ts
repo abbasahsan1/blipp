@@ -176,9 +176,10 @@ export function useAudioEngine(): void {
   }, [status]);
 
   // Durations are recorded when a file is picked: correct them once the real
-  // file reports its length.
+  // file reports its length. Before a source loads the player reports NaN, which
+  // must never reach the stored duration.
   useEffect(() => {
-    if (!currentId || status.duration <= 0) return;
+    if (!currentId || !Number.isFinite(status.duration) || status.duration <= 0) return;
     useFeedStore.getState().syncDuration(currentId, status.duration);
   }, [currentId, status.duration]);
 

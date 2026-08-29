@@ -2,6 +2,7 @@ import { waveformForId } from '@/lib/audio/waveform';
 import { bilt } from '@/lib/bilt';
 import { type ProfileRow, toCreator } from '@/lib/profile/identity';
 import type { AudioPost, Creator, FeedSort } from '@/lib/types';
+import { finiteSeconds } from '@/lib/utils';
 
 /** Storage bucket holding every published audio file. */
 export const AUDIO_BUCKET = 'audio';
@@ -47,9 +48,9 @@ function toAudioPost(row: PostRow, creator: Creator, isLiked: boolean): AudioPos
     category: row.category,
     audioUrl: audioUrlFor(row.audio_path),
     audioPath: row.audio_path,
-    durationSec: Math.max(0, Math.round(row.duration_sec)),
-    plays: row.plays,
-    likes: row.likes,
+    durationSec: Math.round(finiteSeconds(row.duration_sec)),
+    plays: Math.max(0, Math.round(row.plays || 0)),
+    likes: Math.max(0, Math.round(row.likes || 0)),
     totalListenSeconds: Math.max(0, Math.round(Number(row.total_listen_seconds) || 0)),
     createdAt: new Date(row.created_at).getTime(),
     waveform: waveformForId(row.id),
@@ -147,7 +148,7 @@ export async function insertPost(record: NewPostRecord): Promise<AudioPost> {
       title: record.title,
       description: record.description,
       category: record.category,
-      duration_sec: Math.max(0, Math.round(record.durationSec)),
+      duration_sec: Math.round(finiteSeconds(record.durationSec)),
       audio_path: record.audioPath,
     })
     .select(POST_COLUMNS)

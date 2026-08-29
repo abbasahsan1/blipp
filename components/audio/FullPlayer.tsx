@@ -43,7 +43,7 @@ import { AnimatedView } from '@/components/ui/primitives/AnimatedView';
 import { formatCount, formatDuration, formatListenTime } from '@/lib/format';
 import { PALETTE } from '@/lib/palette';
 import type { AudioPost, Creator } from '@/lib/types';
-import { cn, singleSliderValue } from '@/lib/utils';
+import { cn, finiteSeconds, singleSliderValue } from '@/lib/utils';
 
 interface FullPlayerProps {
   post: AudioPost;
@@ -162,8 +162,10 @@ export function FullPlayer({
 
   const dragStyle = useAnimatedStyle(() => ({ transform: [{ translateY: dragY.value }] }));
 
-  const total = duration > 0 ? duration : post.durationSec;
-  const progress = total > 0 ? Math.min(1, position / total) : 0;
+  const reportedDuration = finiteSeconds(duration);
+  const total = reportedDuration > 0 ? reportedDuration : finiteSeconds(post.durationSec);
+  const elapsed = Math.min(finiteSeconds(position), Math.max(total, 0));
+  const progress = total > 0 ? Math.min(1, elapsed / total) : 0;
 
   return (
     <AnimatedView
@@ -269,7 +271,7 @@ export function FullPlayer({
 
           <View className="mt-6">
             <Slider
-              value={Math.min(position, Math.max(total, 1))}
+              value={Math.min(elapsed, Math.max(total, 1))}
               minValue={0}
               maxValue={Math.max(total, 1)}
               step={1}
@@ -284,7 +286,7 @@ export function FullPlayer({
             </Slider>
             <View className="mt-2.5 flex-row justify-between">
               <Typography type="body-xs" color="muted">
-                {formatDuration(position)}
+                {formatDuration(elapsed)}
               </Typography>
               <Typography type="body-xs" color="muted">
                 {formatDuration(total)}
