@@ -6,6 +6,87 @@
 @import 'heroui-native/styles';
 
 /*
+ * Blipp — audio-first dark theme.
+ *
+ * Tokens are defined identically in both Uniwind theme variants because the
+ * app ships dark-only (Uniwind.setTheme('dark') in app/_layout.tsx).
+ */
+@layer theme {
+  :root {
+    @variant light {
+      --background: oklch(0.14 0.012 286);
+      --foreground: oklch(0.97 0.004 286);
+
+      --surface: oklch(0.19 0.014 286);
+      --surface-foreground: var(--foreground);
+      --surface-secondary: oklch(0.23 0.016 286);
+      --surface-secondary-foreground: var(--foreground);
+      --surface-tertiary: oklch(0.27 0.018 286);
+      --surface-tertiary-foreground: var(--foreground);
+
+      --overlay: oklch(0.17 0.014 286);
+      --overlay-foreground: var(--foreground);
+      --backdrop: oklch(0% 0 0 / 60%);
+
+      --accent: oklch(0.627 0.265 303.9);
+      --accent-foreground: oklch(0.16 0.052 302);
+
+      --field-background: oklch(0.23 0.016 286);
+      --field-foreground: var(--foreground);
+      --field-placeholder: oklch(0.62 0.02 286);
+      --field-border: oklch(0.3 0.016 286);
+
+      --muted: oklch(0.7 0.018 286);
+      --default: oklch(0.26 0.016 286);
+      --default-foreground: var(--foreground);
+      --border: oklch(0.28 0.016 286);
+      --separator: oklch(0.34 0.016 286);
+      --focus: var(--accent);
+      --link: var(--accent);
+    }
+
+    @variant dark {
+      --background: oklch(0.14 0.012 286);
+      --foreground: oklch(0.97 0.004 286);
+
+      --surface: oklch(0.19 0.014 286);
+      --surface-foreground: var(--foreground);
+      --surface-secondary: oklch(0.23 0.016 286);
+      --surface-secondary-foreground: var(--foreground);
+      --surface-tertiary: oklch(0.27 0.018 286);
+      --surface-tertiary-foreground: var(--foreground);
+
+      --overlay: oklch(0.17 0.014 286);
+      --overlay-foreground: var(--foreground);
+      --backdrop: oklch(0% 0 0 / 60%);
+
+      --accent: oklch(0.627 0.265 303.9);
+      --accent-foreground: oklch(0.16 0.052 302);
+
+      --field-background: oklch(0.23 0.016 286);
+      --field-foreground: var(--foreground);
+      --field-placeholder: oklch(0.62 0.02 286);
+      --field-border: oklch(0.3 0.016 286);
+
+      --muted: oklch(0.7 0.018 286);
+      --default: oklch(0.26 0.016 286);
+      --default-foreground: var(--foreground);
+      --border: oklch(0.28 0.016 286);
+      --separator: oklch(0.34 0.016 286);
+      --focus: var(--accent);
+      --link: var(--accent);
+    }
+  }
+}
+
+/* Extra utilities used by waveforms and audio meters. */
+@theme {
+  --color-wave: oklch(0.82 0.13 196);
+  --color-wave-track: oklch(0.32 0.02 286);
+  --color-elevated: oklch(0.22 0.016 286);
+}
+
+/*
  * HeroUI Native + Uniwind tokens
  *
  * HeroUI component variants compile to semantic utilities such as bg-accent,

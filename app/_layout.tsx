@@ -11,7 +11,7 @@ import {
 } from '@expo-google-fonts/inter';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import * as DevClient from 'expo-dev-client';
 import { HeroUINativeProvider } from 'heroui-native';
 import { Uniwind } from 'uniwind';
@@ -26,6 +26,10 @@ import { initPostHog } from '@/lib/posthog';
 import { registerServiceWorker } from '@/lib/registerServiceWorker';
 import { reportErrorToParent } from '@/lib/reportPreviewError';
 import { InstallPrompt } from '@/components/InstallPrompt';
+import { LaunchScreen } from '@/components/LaunchScreen';
+import { PALETTE } from '@/lib/palette';
+import { useFeedStore } from '@/lib/store/feedStore';
+import { useSessionStore } from '@/lib/store/sessionStore';
 
 /**
  * Custom ErrorBoundary that reports React render errors to the parent window (Bilt preview iframe)
@@ -43,8 +47,8 @@ function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 
 export { ErrorBoundary };
 
-// Starter is light-only by default. Remove this when implementing requested dark mode.
-Uniwind.setTheme('light');
+// Blipp ships dark-only: the audio-first palette in global.css targets the dark variant.
+Uniwind.setTheme('dark');
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -55,6 +59,27 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold,
   });
+  const [isBootstrapped, setIsBootstrapped] = useState(false);
+
+  // Load the first batch of (mock) feed and profile data behind the launch screen.
+  useEffect(() => {
+    let isCancelled = false;
+    const MIN_SPLASH_MS = 1_300;
+
+    const bootstrap = async () => {
+      await Promise.all([
+        useFeedStore.getState().loadFeed(),
+        useSessionStore.getState().loadProfile(),
+        new Promise<void>((resolve) => setTimeout(resolve, MIN_SPLASH_MS)),
+      ]);
+      if (!isCancelled) setIsBootstrapped(true);
+    };
+
+    void bootstrap();
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
 
   // Report uncaught JS errors and unhandled promise rejections to parent (Bilt preview iframe)
   useEffect(() => {
@@ -139,11 +164,18 @@ export default function RootLayout() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: PALETTE.background }}>
       <HeroUINativeProvider>
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ title: 'Habits', headerShown: false }} />
+        <Stack
+          screenOptions={{
+            contentStyle: { backgroundColor: PALETTE.background },
+            headerStyle: { backgroundColor: PALETTE.background },
+            headerTintColor: PALETTE.foreground,
+          }}
+        >
+          <Stack.Screen name="(tabs)" options={{ title: 'Blipp', headerShown: false }} />
         </Stack>
+        {isBootstrapped ? null : <LaunchScreen />}
         <InstallPrompt />
       </HeroUINativeProvider>
     </GestureHandlerRootView>
