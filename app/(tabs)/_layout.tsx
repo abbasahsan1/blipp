@@ -1,12 +1,24 @@
-import { Mic, Radio, User } from 'lucide-react-native';
+import { Radio, Upload, User } from 'lucide-react-native';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { Href } from 'expo-router';
 import { Tabs } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
 import { PlayerHost } from '@/components/audio/PlayerHost';
 import { TAB_BAR_HEIGHT } from '@/lib/layout';
 import { PALETTE } from '@/lib/palette';
+import { useUploadStore } from '@/lib/store/uploadStore';
+
+/**
+ * Leaving the Upload tab with an unsaved draft or an upload in flight has to be
+ * confirmed first, so the tab press is held back until the dialog is answered.
+ */
+function guardUploadDraft(href: Href) {
+  return (event: { preventDefault: () => void }) => {
+    if (useUploadStore.getState().requestLeave(href)) event.preventDefault();
+  };
+}
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
@@ -51,13 +63,14 @@ export default function TabLayout() {
             headerShown: false,
             tabBarIcon: ({ color, size }) => <Radio color={color} size={size ?? 24} />,
           }}
+          listeners={{ tabPress: guardUploadDraft('/') }}
         />
         <Tabs.Screen
           name="upload"
           options={{
             title: 'Upload',
             headerTitle: 'New audio',
-            tabBarIcon: ({ color, size }) => <Mic color={color} size={size ?? 24} />,
+            tabBarIcon: ({ color, size }) => <Upload color={color} size={size ?? 24} />,
           }}
         />
         <Tabs.Screen
@@ -67,6 +80,7 @@ export default function TabLayout() {
             headerTitle: 'Profile',
             tabBarIcon: ({ color, size }) => <User color={color} size={size ?? 24} />,
           }}
+          listeners={{ tabPress: guardUploadDraft('/profile') }}
         />
       </Tabs>
       <PlayerHost />

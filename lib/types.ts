@@ -21,9 +21,25 @@ export const POST_CATEGORIES = [
   'Coaching',
   'Ambient',
   'Journal',
+  'Other',
 ] as const;
 
 export type PostCategory = (typeof POST_CATEGORIES)[number];
+
+/**
+ * The fixed list offered when publishing from the Upload tab. Narrower than
+ * POST_CATEGORIES, which also covers categories only seeded posts use.
+ */
+export const UPLOAD_CATEGORIES = [
+  'Interview',
+  'Tech Review',
+  'Story',
+  'Skit',
+  'Discussion',
+  'Other',
+] as const satisfies readonly PostCategory[];
+
+export type UploadCategory = (typeof UPLOAD_CATEGORIES)[number];
 
 export interface AudioPost {
   id: string;
@@ -61,8 +77,9 @@ export interface NewPostInput {
   title: string;
   description: string;
   category: PostCategory;
-  tags: string[];
   durationSec: number;
-  waveform: number[];
-  isPublic: boolean;
+  /** Source of the uploaded file. Falls back to a placeholder clip when absent. */
+  audioUrl?: string;
+  tags?: string[];
+  waveform?: number[];
 }

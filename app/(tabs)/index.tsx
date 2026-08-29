@@ -189,7 +189,7 @@ export default function FeedScreen() {
             Nothing to listen to yet
           </Typography>
           <Typography type="body-sm" color="muted" align="center" className="mt-1">
-            Pull down to refresh, or record the first Blipp from the Upload tab.
+            Pull down to refresh, or upload the first Blipp from the Upload tab.
           </Typography>
         </View>
       ) : (

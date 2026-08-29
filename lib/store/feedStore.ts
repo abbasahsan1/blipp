@@ -66,18 +66,23 @@ export const useFeedStore = create<FeedState>((set, get) => ({
       description: input.description.trim(),
       creatorId: MY_CREATOR_ID,
       category: input.category,
-      // Recording is still mocked, so new posts borrow a placeholder audio file.
-      audioUrl: sampleAudioUrl(get().posts.length),
-      durationSec: input.durationSec,
+      // Uploads carry the picked file; anything without one borrows a placeholder clip.
+      audioUrl: input.audioUrl ?? sampleAudioUrl(get().posts.length),
+      durationSec: Math.max(1, Math.round(input.durationSec)),
       plays: 0,
       likes: 0,
       comments: 0,
-      tags: input.tags,
+      tags: input.tags ?? [],
       createdAt: Date.now(),
-      waveform: input.waveform.length > 8 ? input.waveform : makeWaveform(Date.now() % 9_999),
+      waveform:
+        input.waveform && input.waveform.length > 8
+          ? input.waveform
+          : makeWaveform(Date.now() % 9_999),
       isLiked: false,
     };
-    set((state) => ({ posts: [post, ...state.posts] }));
+    // 'for-you' keeps insertion order, so a brand new post lands at the top of
+    // the feed instead of being sorted away by plays.
+    set((state) => ({ posts: [post, ...state.posts], category: 'for-you' }));
     return post;
   },
 

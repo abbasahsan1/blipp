@@ -1,8 +1,8 @@
-import { AudioLines, Check, Mic, RotateCcw, Square, Upload } from 'lucide-react-native';
-import { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
+import { Upload } from 'lucide-react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { BackHandler, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import {
   Button,
   Chip,
@@ -16,117 +16,107 @@ import {
   Typography,
 } from 'heroui-native';
 
-import { Waveform } from '@/components/audio/Waveform';
+import { DiscardDraftDialog } from '@/components/upload/DiscardDraftDialog';
+import { FilePickerCard } from '@/components/upload/FilePickerCard';
+import { UploadErrorBanner } from '@/components/upload/UploadErrorBanner';
+import { UploadProgressCard } from '@/components/upload/UploadProgressCard';
+import { UploadSuccessOverlay } from '@/components/upload/UploadSuccessOverlay';
 import { MINI_PLAYER_INSET } from '@/lib/layout';
-import { formatDuration } from '@/lib/format';
-import { makeWaveform, TAG_SUGGESTIONS } from '@/lib/mockData';
 import { PALETTE } from '@/lib/palette';
-import { useFeedStore } from '@/lib/store/feedStore';
 import { usePlayerStore } from '@/lib/store/playerStore';
-import { POST_CATEGORIES, type PostCategory } from '@/lib/types';
+import {
+  canPublishDraft,
+  DESCRIPTION_MAX_LENGTH,
+  TITLE_MAX_LENGTH,
+  useUploadStore,
+} from '@/lib/store/uploadStore';
+import { pickAudioFile } from '@/lib/upload/pickAudioFile';
+import { UPLOAD_CATEGORIES } from '@/lib/types';
 
-type RecordStage = 'idle' | 'recording' | 'ready';
-
-const TICK_MS = 150;
-const MAX_CLIP_SECONDS = 300;
-const MAX_TAGS = 3;
+/** How long the confirmation stays up before the feed opens. */
+const SUCCESS_HOLD_MS = 1_300;
+const PICKER_ERROR = 'The file picker could not be opened. Try again in a moment.';
 
 export default function UploadScreen() {
   const insets = useSafeAreaInsets();
-  const addPost = useFeedStore((state) => state.addPost);
   const currentId = usePlayerStore((state) => state.currentId);
 
-  const [stage, setStage] = useState<RecordStage>('idle');
-  const [elapsed, setElapsed] = useState(0);
-  const [bars, setBars] = useState<number[]>([]);
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [category, setCategory] = useState<PostCategory>('Journal');
-  const [tags, setTags] = useState<string[]>([]);
-  const [isPublic, setIsPublic] = useState(true);
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [hasSubmitted, setHasSubmitted] = useState(false);
-  const [publishedTitle, setPublishedTitle] = useState<string | null>(null);
-  const elapsedRef = useRef(0);
+  const file = useUploadStore((state) => state.file);
+  const title = useUploadStore((state) => state.title);
+  const description = useUploadStore((state) => state.description);
+  const category = useUploadStore((state) => state.category);
+  const status = useUploadStore((state) => state.status);
+  const progress = useUploadStore((state) => state.progress);
+  const error = useUploadStore((state) => state.error);
+  const errorKind = useUploadStore((state) => state.errorKind);
+  const simulateFailure = useUploadStore((state) => state.simulateFailure);
+  const publishedTitle = useUploadStore((state) => state.publishedTitle);
+  const pendingLeave = useUploadStore((state) => state.pendingLeave);
 
+  const setFile = useUploadStore((state) => state.setFile);
+  const clearFile = useUploadStore((state) => state.clearFile);
+  const setTitle = useUploadStore((state) => state.setTitle);
+  const setDescription = useUploadStore((state) => state.setDescription);
+  const setCategory = useUploadStore((state) => state.setCategory);
+  const setSimulateFailure = useUploadStore((state) => state.setSimulateFailure);
+  const reportPickError = useUploadStore((state) => state.reportPickError);
+  const startUpload = useUploadStore((state) => state.startUpload);
+  const cancelUpload = useUploadStore((state) => state.cancelUpload);
+  const reset = useUploadStore((state) => state.reset);
+  const setFocused = useUploadStore((state) => state.setFocused);
+  const confirmLeave = useUploadStore((state) => state.confirmLeave);
+  const cancelLeave = useUploadStore((state) => state.cancelLeave);
+
+  const [isPicking, setIsPicking] = useState(false);
+
+  const isUploading = status === 'uploading';
+  const canPost = canPublishDraft({ file, title, status });
+
+  // The leave guard only applies while this screen is the one on screen.
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      return () => setFocused(false);
+    }, [setFocused]),
+  );
+
+  // Android hardware back leaves the tab, so it goes through the same guard.
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== 'android') return undefined;
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () =>
+        useUploadStore.getState().requestLeave('/'),
+      );
+      return () => subscription.remove();
+    }, []),
+  );
+
+  // Hold the confirmation briefly, then hand over to the feed.
   useEffect(() => {
-    if (stage !== 'recording') return undefined;
+    if (status !== 'success') return undefined;
+    const timer = setTimeout(() => {
+      reset();
+      router.navigate('/');
+    }, SUCCESS_HOLD_MS);
+    return () => clearTimeout(timer);
+  }, [status, reset]);
 
-    const interval = setInterval(() => {
-      elapsedRef.current += TICK_MS / 1000;
-      setElapsed(elapsedRef.current);
-      setBars((previous) => [...previous, 0.2 + Math.random() * 0.8]);
-      if (elapsedRef.current >= MAX_CLIP_SECONDS) setStage('ready');
-    }, TICK_MS);
+  const handlePick = useCallback(async () => {
+    if (isPicking || isUploading) return;
+    setIsPicking(true);
+    try {
+      const picked = await pickAudioFile();
+      if (picked) setFile(picked);
+    } catch {
+      reportPickError(PICKER_ERROR);
+    } finally {
+      setIsPicking(false);
+    }
+  }, [isPicking, isUploading, setFile, reportPickError]);
 
-    return () => clearInterval(interval);
-  }, [stage]);
-
-  const startRecording = () => {
-    elapsedRef.current = 0;
-    setElapsed(0);
-    setBars([]);
-    setPublishedTitle(null);
-    setStage('recording');
-  };
-
-  const stopRecording = () => {
-    setStage(elapsedRef.current >= 1 ? 'ready' : 'idle');
-  };
-
-  const useSampleClip = () => {
-    elapsedRef.current = 48;
-    setElapsed(48);
-    setBars(makeWaveform(Date.now() % 5_000));
-    setPublishedTitle(null);
-    setStage('ready');
-  };
-
-  const discardClip = () => {
-    elapsedRef.current = 0;
-    setElapsed(0);
-    setBars([]);
-    setStage('idle');
-  };
-
-  const toggleTag = (tag: string) => {
-    setTags((previous) => {
-      if (previous.includes(tag)) return previous.filter((item) => item !== tag);
-      if (previous.length >= MAX_TAGS) return previous;
-      return [...previous, tag];
-    });
-  };
-
-  const trimmedTitle = title.trim();
-  const isTitleValid = trimmedTitle.length >= 3;
-  const hasClip = stage === 'ready' && elapsed >= 1;
-  const canPublish = isTitleValid && hasClip && !isPublishing;
-
-  const handlePublish = async () => {
-    setHasSubmitted(true);
-    if (!canPublish) return;
-
-    setIsPublishing(true);
-    // Stands in for the upload request until a backend is connected.
-    await new Promise<void>((resolve) => setTimeout(resolve, 900));
-
-    addPost({
-      title: trimmedTitle,
-      description: description.trim(),
-      category,
-      tags,
-      durationSec: Math.round(elapsed),
-      waveform: bars,
-      isPublic,
-    });
-
-    setIsPublishing(false);
-    setPublishedTitle(trimmedTitle);
-    setTitle('');
-    setDescription('');
-    setTags([]);
-    setHasSubmitted(false);
-    discardClip();
+  const handleDiscard = () => {
+    const target = confirmLeave();
+    if (target) router.navigate(target);
   };
 
   return (
@@ -144,135 +134,53 @@ export default function UploadScreen() {
         }}
         showsVerticalScrollIndicator={false}
       >
-        {publishedTitle ? (
-          <Surface className="border-accent mb-4 flex-row items-center gap-3 rounded-2xl border p-3.5">
-            <View className="bg-accent h-9 w-9 items-center justify-center rounded-full">
-              <Check color={PALETTE.accentForeground} size={18} />
-            </View>
-            <View className="flex-1">
-              <Typography type="body-sm" weight="semibold">
-                Posted “{publishedTitle}”
-              </Typography>
-              <Typography type="body-xs" color="muted">
-                It is at the top of your feed and profile.
-              </Typography>
-            </View>
-            <Button size="sm" variant="tertiary" onPress={() => router.navigate('/')}>
-              <Button.Label>Open feed</Button.Label>
-            </Button>
-          </Surface>
+        <FilePickerCard
+          file={file}
+          isPicking={isPicking}
+          isUploading={isUploading}
+          onPick={() => void handlePick()}
+          onRemove={clearFile}
+        />
+
+        {isUploading ? (
+          <UploadProgressCard
+            progress={progress}
+            fileName={file?.name ?? 'Your file'}
+            onCancel={cancelUpload}
+          />
         ) : null}
 
-        <Surface variant="default" className="items-center rounded-3xl p-6">
-          {stage === 'recording' ? (
-            <>
-              <Typography type="h2">{formatDuration(elapsed)}</Typography>
-              <Typography type="body-xs" className="text-danger mt-1">
-                Recording…
-              </Typography>
-              <Waveform
-                data={bars.slice(-36)}
-                progress={1}
-                bars={36}
-                height={56}
-                barWidth={4}
-                gap={3}
-                className="mt-5"
-                activeClassName="bg-wave"
-              />
-              <Pressable
-                onPress={stopRecording}
-                accessibilityRole="button"
-                accessibilityLabel="Stop recording"
-                className="bg-danger mt-6 h-20 w-20 items-center justify-center rounded-full"
-              >
-                <Square color="#FFFFFF" size={26} fill="#FFFFFF" />
-              </Pressable>
-              <Typography type="body-xs" color="muted" className="mt-3">
-                Tap to stop
-              </Typography>
-            </>
-          ) : null}
-
-          {stage === 'ready' ? (
-            <>
-              <View className="flex-row items-center gap-2">
-                <AudioLines color={PALETTE.wave} size={18} />
-                <Typography type="body-sm" weight="semibold">
-                  Clip ready · {formatDuration(elapsed)}
-                </Typography>
-              </View>
-              <Waveform
-                data={bars}
-                progress={1}
-                bars={40}
-                height={56}
-                barWidth={4}
-                gap={3}
-                className="mt-5"
-                activeClassName="bg-wave"
-              />
-              <View className="mt-6 flex-row gap-3">
-                <Button variant="tertiary" size="sm" onPress={discardClip}>
-                  <Button.Label>
-                    <View className="flex-row items-center gap-2">
-                      <RotateCcw color={PALETTE.foreground} size={15} />
-                      <Typography type="body-sm">Record again</Typography>
-                    </View>
-                  </Button.Label>
-                </Button>
-              </View>
-            </>
-          ) : null}
-
-          {stage === 'idle' ? (
-            <>
-              <Pressable
-                onPress={startRecording}
-                accessibilityRole="button"
-                accessibilityLabel="Start recording"
-                className="bg-accent h-24 w-24 items-center justify-center rounded-full"
-              >
-                <Mic color={PALETTE.accentForeground} size={34} />
-              </Pressable>
-              <Typography type="body" weight="semibold" className="mt-5">
-                Record a Blipp
-              </Typography>
-              <Typography type="body-sm" color="muted" align="center" className="mt-1">
-                Up to five minutes of audio. No camera, no video.
-              </Typography>
-              <Button variant="ghost" size="sm" className="mt-3" onPress={useSampleClip}>
-                <Button.Label>Use a sample clip</Button.Label>
-              </Button>
-            </>
-          ) : null}
-        </Surface>
-
-        {hasSubmitted && !hasClip ? (
-          <Typography type="body-xs" className="text-danger mt-2">
-            Record or add a clip before publishing.
-          </Typography>
+        {error ? (
+          <UploadErrorBanner
+            message={error}
+            actionLabel={errorKind === 'transfer' ? 'Retry upload' : 'Choose another file'}
+            onAction={errorKind === 'transfer' ? startUpload : () => void handlePick()}
+          />
         ) : null}
 
         <View className="mt-6 gap-5">
-          <TextField isInvalid={hasSubmitted && !isTitleValid}>
+          <TextField>
             <Label>Title</Label>
             <Input
               value={title}
               onChangeText={setTitle}
-              placeholder="What is this clip about?"
-              maxLength={90}
+              placeholder="Name this clip"
+              maxLength={TITLE_MAX_LENGTH}
+              editable={!isUploading}
               returnKeyType="next"
             />
-            {hasSubmitted && !isTitleValid ? (
-              <Typography type="body-xs" className="text-danger">
-                Add a title of at least 3 characters.
-              </Typography>
-            ) : (
+            <View className="mt-1 flex-row items-center justify-between">
               <Typography type="body-xs" color="muted">
-                {title.length}/90
+                Required
               </Typography>
-            )}
+              <Typography
+                type="body-xs"
+                color="muted"
+                className={title.length === TITLE_MAX_LENGTH ? 'text-accent' : undefined}
+              >
+                {title.length}/{TITLE_MAX_LENGTH}
+              </Typography>
+            </View>
           </TextField>
 
           <TextField>
@@ -282,8 +190,23 @@ export default function UploadScreen() {
               onChangeText={setDescription}
               placeholder="Add context for listeners (optional)"
               numberOfLines={4}
-              maxLength={280}
+              maxLength={DESCRIPTION_MAX_LENGTH}
+              editable={!isUploading}
             />
+            <View className="mt-1 flex-row items-center justify-between">
+              <Typography type="body-xs" color="muted">
+                Optional
+              </Typography>
+              <Typography
+                type="body-xs"
+                color="muted"
+                className={
+                  description.length === DESCRIPTION_MAX_LENGTH ? 'text-accent' : undefined
+                }
+              >
+                {description.length}/{DESCRIPTION_MAX_LENGTH}
+              </Typography>
+            </View>
           </TextField>
 
           <View>
@@ -292,7 +215,7 @@ export default function UploadScreen() {
               Shown as a chip on your post in the feed.
             </Typography>
             <View className="mt-3 flex-row flex-wrap gap-2">
-              {POST_CATEGORIES.map((option) => {
+              {UPLOAD_CATEGORIES.map((option) => {
                 const isSelected = option === category;
                 return (
                   <Chip
@@ -300,6 +223,7 @@ export default function UploadScreen() {
                     size="sm"
                     color="accent"
                     variant={isSelected ? 'primary' : 'tertiary'}
+                    disabled={isUploading}
                     onPress={() => setCategory(option)}
                     accessibilityRole="button"
                     accessibilityState={{ selected: isSelected }}
@@ -311,72 +235,60 @@ export default function UploadScreen() {
             </View>
           </View>
 
-          <View>
-            <Label>Tags</Label>
-            <Typography type="body-xs" color="muted" className="mt-1">
-              Pick up to {MAX_TAGS} so listeners can find it.
-            </Typography>
-            <View className="mt-3 flex-row flex-wrap gap-2">
-              {TAG_SUGGESTIONS.map((tag) => {
-                const isSelected = tags.includes(tag);
-                return (
-                  <Chip
-                    key={tag}
-                    size="sm"
-                    color="accent"
-                    variant={isSelected ? 'primary' : 'tertiary'}
-                    onPress={() => toggleTag(tag)}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: isSelected }}
-                  >
-                    <Chip.Label>#{tag}</Chip.Label>
-                  </Chip>
-                );
-              })}
-            </View>
-          </View>
-
           <Surface variant="secondary" className="flex-row items-center gap-3 rounded-2xl p-4">
             <View className="flex-1">
               <Typography type="body-sm" weight="medium">
-                Public in the feed
+                Simulate a failed upload
               </Typography>
               <Typography type="body-xs" color="muted">
-                {isPublic ? 'Anyone can listen to this clip.' : 'Only visible on your profile.'}
+                Demo switch: interrupts the next upload so you can see the error and retry.
               </Typography>
             </View>
-            <Switch isSelected={isPublic} onSelectedChange={setIsPublic} />
+            <Switch
+              isSelected={simulateFailure}
+              onSelectedChange={setSimulateFailure}
+              isDisabled={isUploading}
+            />
           </Surface>
 
-          <Button size="lg" isDisabled={isPublishing} onPress={() => void handlePublish()}>
-            <Button.Label>
-              {isPublishing ? (
+          <View>
+            <Button size="lg" isDisabled={!canPost} onPress={startUpload}>
+              <Button.Label>
                 <View className="flex-row items-center gap-2">
-                  <Spinner size="sm" />
+                  {isUploading ? (
+                    <Spinner size="sm" />
+                  ) : (
+                    <Upload color={PALETTE.accentForeground} size={18} />
+                  )}
                   <Typography
                     type="body"
                     weight="semibold"
                     style={{ color: PALETTE.accentForeground }}
                   >
-                    Publishing…
+                    {isUploading ? `Posting… ${Math.round(progress * 100)}%` : 'Post'}
                   </Typography>
                 </View>
-              ) : (
-                <View className="flex-row items-center gap-2">
-                  <Upload color={PALETTE.accentForeground} size={18} />
-                  <Typography
-                    type="body"
-                    weight="semibold"
-                    style={{ color: PALETTE.accentForeground }}
-                  >
-                    Publish audio
-                  </Typography>
-                </View>
-              )}
-            </Button.Label>
-          </Button>
+              </Button.Label>
+            </Button>
+            {canPost || isUploading ? null : (
+              <Typography type="body-xs" color="muted" align="center" className="mt-2">
+                Pick an audio file and add a title to post.
+              </Typography>
+            )}
+          </View>
         </View>
       </ScrollView>
+
+      <DiscardDraftDialog
+        isOpen={pendingLeave !== null}
+        isUploading={isUploading}
+        onKeepEditing={cancelLeave}
+        onDiscard={handleDiscard}
+      />
+
+      {status === 'success' && publishedTitle ? (
+        <UploadSuccessOverlay title={publishedTitle} />
+      ) : null}
     </KeyboardAvoidingView>
   );
 }

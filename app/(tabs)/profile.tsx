@@ -198,7 +198,7 @@ export default function ProfileScreen() {
               No posts yet
             </Typography>
             <Typography type="body-xs" color="muted" align="center" className="mt-1">
-              Record your first clip and it will show up here.
+              Upload your first clip and it will show up here.
             </Typography>
             <Button
               size="sm"
