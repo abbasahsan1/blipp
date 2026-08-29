@@ -53,6 +53,12 @@ interface PlayerState {
   cycleSpeed: () => void;
   retry: () => void;
   reportStatus: (status: PlaybackStatusUpdate) => void;
+  /**
+   * Adopts a play/pause change that came from outside the app — the media
+   * notification, the lock screen or a headset/car media button — so the
+   * in-app players show what the audio is actually doing.
+   */
+  reportPlaybackState: (playing: boolean) => void;
   reportError: (message: string) => void;
   trackEnded: () => void;
 }
@@ -215,6 +221,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       if (status.isLoaded && state.error) next.error = null;
 
       if (Object.keys(next).length > 0) set(next);
+    },
+
+    reportPlaybackState: (playing) => {
+      const state = get();
+      if (!state.currentId || state.error) return;
+      if (state.isPlaying === playing) return;
+      set({ isPlaying: playing });
     },
 
     reportError: (message) => {

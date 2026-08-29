@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   setAudioModeAsync,
   useAudioPlayer,
@@ -7,6 +7,15 @@ import {
 } from 'expo-audio';
 
 import { registerAudioBridge } from '@/lib/audio/bridge';
+import {
+  activateMediaSession,
+  clearMediaSession,
+  ensureMediaNotificationPermission,
+  resolveNotificationArtwork,
+  updateMediaSessionMetadata,
+  type MediaSessionMetadata,
+} from '@/lib/audio/mediaSession';
+import { CREATORS_BY_ID } from '@/lib/mockData';
 import { useFeedStore } from '@/lib/store/feedStore';
 import { usePlayerStore } from '@/lib/store/playerStore';
 
@@ -25,8 +34,8 @@ type StatusWithError = AudioStatus & { error?: string | null };
  * buffering and load failures back.
  *
  * Mounted once, next to the persistent player UI, so playback survives tab
- * changes. Background playback is enabled through the audio mode below plus the
- * expo-audio config plugin in app.config.ts.
+ * changes. Background playback and the lock screen / notification controls both
+ * come from the audio mode below plus the media session in lib/audio.
  */
 export function useAudioEngine(): void {
   const player = useAudioPlayer(null, { updateInterval: STATUS_INTERVAL_MS });
@@ -36,13 +45,26 @@ export function useAudioEngine(): void {
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const speed = usePlayerStore((state) => state.speed);
   const loadToken = usePlayerStore((state) => state.loadToken);
-  const audioUrl = useFeedStore((state) =>
-    currentId ? state.posts.find((post) => post.id === currentId)?.audioUrl : undefined,
+  const post = useFeedStore((state) =>
+    currentId ? state.posts.find((item) => item.id === currentId) : undefined,
   );
+  const audioUrl = post?.audioUrl;
+  const title = post?.title;
+  const creatorId = post?.creatorId;
+  const category = post?.category;
 
   const speedRef = useRef(speed);
   speedRef.current = speed;
   const didFinishRef = useRef(false);
+  /**
+   * The last play/pause command handed to the native player, and whether the
+   * player has been observed obeying it. Once confirmed, any further divergence
+   * is someone else driving the session — the notification, lock screen or a
+   * media button — rather than a command of ours still in flight.
+   */
+  const intentRef = useRef({ playing: false, confirmed: false });
+  /** Whether the media session accepted this player and owns a notification. */
+  const sessionActiveRef = useRef(false);
 
   // Keep playing when the app is backgrounded or the screen locks.
   useEffect(() => {
@@ -79,10 +101,13 @@ export function useAudioEngine(): void {
       return;
     }
 
+    const shouldPlay = usePlayerStore.getState().isPlaying;
+    intentRef.current = { playing: shouldPlay, confirmed: false };
+
     try {
       player.replace({ uri: audioUrl });
       player.setPlaybackRate(speedRef.current, 'high');
-      if (usePlayerStore.getState().isPlaying) player.play();
+      if (shouldPlay) player.play();
     } catch {
       usePlayerStore.getState().reportError(LOAD_ERROR);
     }
@@ -91,6 +116,7 @@ export function useAudioEngine(): void {
   // Follow play/pause intent.
   useEffect(() => {
     if (!currentId) return;
+    intentRef.current = { playing: isPlaying, confirmed: false };
     try {
       if (isPlaying) player.play();
       else player.pause();
@@ -125,6 +151,17 @@ export function useAudioEngine(): void {
       isLoaded: status.isLoaded,
     });
 
+    // Only a ready player says anything trustworthy about play/pause: while it
+    // buffers or reloads, `playing` is false even though playback is intended.
+    if (status.isLoaded && !status.isBuffering && !status.didJustFinish) {
+      if (status.playing === intentRef.current.playing) {
+        intentRef.current.confirmed = true;
+      } else if (intentRef.current.confirmed) {
+        intentRef.current = { playing: status.playing, confirmed: true };
+        store.reportPlaybackState(status.playing);
+      }
+    }
+
     // didJustFinish stays true across updates, so only the transition advances.
     if (status.didJustFinish && !didFinishRef.current) {
       didFinishRef.current = true;
@@ -149,4 +186,71 @@ export function useAudioEngine(): void {
     }, LOAD_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [currentId, loadToken, status.isLoaded]);
+
+  const [artworkUrl, setArtworkUrl] = useState<string | undefined>(undefined);
+
+  // Placeholder artwork for the notification, resolved once per launch.
+  useEffect(() => {
+    let cancelled = false;
+    void resolveNotificationArtwork().then((uri) => {
+      if (!cancelled) setArtworkUrl(uri);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const metadata = useMemo<MediaSessionMetadata | null>(() => {
+    if (!title) return null;
+    return {
+      title,
+      artist: (creatorId ? CREATORS_BY_ID[creatorId]?.name : undefined) ?? 'Blipp',
+      albumTitle: category,
+      artworkUrl,
+    };
+  }, [title, creatorId, category, artworkUrl]);
+
+  /**
+   * Hand the player to the media session on first play, like a music app: the
+   * notification appears with playback rather than at launch. Later track
+   * changes only relabel the existing notification.
+   */
+  useEffect(() => {
+    if (!currentId || !metadata) return undefined;
+
+    if (sessionActiveRef.current) {
+      updateMediaSessionMetadata(player, metadata);
+      return undefined;
+    }
+
+    if (!isPlaying) return undefined;
+
+    let cancelled = false;
+    void ensureMediaNotificationPermission().then(() => {
+      if (cancelled || sessionActiveRef.current) return;
+      // A device that refuses the session keeps the in-app controls: playback,
+      // scrubbing and the mini/full player never depended on it.
+      sessionActiveRef.current = activateMediaSession(player, metadata);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [player, currentId, metadata, isPlaying]);
+
+  // Nothing is playing any more, so the notification should go away.
+  useEffect(() => {
+    if (currentId || !sessionActiveRef.current) return;
+    clearMediaSession(player);
+    sessionActiveRef.current = false;
+  }, [player, currentId]);
+
+  useEffect(
+    () => () => {
+      if (!sessionActiveRef.current) return;
+      clearMediaSession(player);
+      sessionActiveRef.current = false;
+    },
+    [player],
+  );
 }
