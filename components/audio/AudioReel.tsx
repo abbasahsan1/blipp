@@ -1,7 +1,17 @@
-import { BadgeCheck, ChevronUp, Headphones, Heart, MessageCircle, Play } from 'lucide-react-native';
+import {
+  BadgeCheck,
+  ChevronUp,
+  Headphones,
+  Heart,
+  MessageCircle,
+  Pause,
+  Play,
+  RotateCcw,
+  TriangleAlert,
+} from 'lucide-react-native';
 import { memo } from 'react';
 import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
-import { Slider, Typography } from 'heroui-native';
+import { Button, Chip, Slider, Spinner, Typography } from 'heroui-native';
 
 import { CoverArt } from '@/components/audio/CoverArt';
 import { Waveform } from '@/components/audio/Waveform';
@@ -9,6 +19,7 @@ import { LinearGradient } from '@/components/ui/primitives/LinearGradient';
 import { formatCount, formatDuration, formatRelativeTime } from '@/lib/format';
 import { PALETTE } from '@/lib/palette';
 import type { AudioPost, Creator } from '@/lib/types';
+import { singleSliderValue } from '@/lib/utils';
 
 interface AudioReelProps {
   post: AudioPost;
@@ -22,15 +33,22 @@ interface AudioReelProps {
   /** True when this reel is the one snapped into view. */
   isActive: boolean;
   isPlaying: boolean;
+  isBuffering: boolean;
+  /** Inline playback failure for the active reel. */
+  error: string | null;
   /** Playback position in seconds; only meaningful for the active reel. */
   position: number;
+  /** Real duration of the active reel's audio, 0 before it loads. */
+  duration: number;
   speed: number;
   showSwipeHint: boolean;
   /** Handlers take the post id so the feed can pass stable references. */
   onTogglePlay: (postId: string) => void;
-  onSeek: (position: number) => void;
+  onScrub: (position: number) => void;
+  onScrubEnd: (position: number) => void;
   onToggleLike: (postId: string) => void;
   onCycleSpeed: () => void;
+  onRetry: () => void;
 }
 
 function AudioReelComponent({
@@ -41,23 +59,35 @@ function AudioReelComponent({
   bottomInset,
   isActive,
   isPlaying,
+  isBuffering,
+  error,
   position,
+  duration,
   speed,
   showSwipeHint,
   onTogglePlay,
-  onSeek,
+  onScrub,
+  onScrubEnd,
   onToggleLike,
   onCycleSpeed,
+  onRetry,
 }: AudioReelProps) {
   const { width } = useWindowDimensions();
 
   const coverSize = Math.max(150, Math.min(width - 130, Math.round(height * 0.36)));
-  const progress = post.durationSec > 0 ? Math.min(1, position / post.durationSec) : 0;
-  const showPlayOverlay = !isActive || !isPlaying;
+  const total = isActive && duration > 0 ? duration : post.durationSec;
+  const elapsed = isActive ? Math.min(position, total) : 0;
+  const progress = total > 0 ? Math.min(1, elapsed / total) : 0;
+  const showError = isActive && Boolean(error);
+  const showSpinner = isActive && isBuffering && isPlaying && !showError;
 
-  const handleSliderChange = (value: number | number[]) => {
-    onSeek(Array.isArray(value) ? value[0] : value);
-  };
+  const statusLabel = showError
+    ? 'Playback failed'
+    : showSpinner
+      ? 'Buffering…'
+      : isActive && isPlaying
+        ? 'Tap to pause'
+        : 'Tap to play';
 
   return (
     <View style={{ height }} className="bg-background overflow-hidden">
@@ -79,7 +109,7 @@ function AudioReelComponent({
           <View className="h-full w-full items-center justify-center bg-black/20">
             <Waveform
               data={post.waveform}
-              progress={isActive ? progress : 0}
+              progress={progress}
               bars={20}
               height={Math.round(coverSize * 0.42)}
               barWidth={5}
@@ -87,17 +117,46 @@ function AudioReelComponent({
               activeClassName="bg-white"
               inactiveClassName="bg-white/25"
             />
-            {showPlayOverlay ? (
-              <View className="absolute h-16 w-16 items-center justify-center rounded-full bg-black/45">
-                <Play color={PALETTE.onCover} size={28} fill={PALETTE.onCover} />
-              </View>
-            ) : null}
+
+            {/* Explicit play/pause control that always reflects playback state. */}
+            <Pressable
+              onPress={() => (showError ? onRetry() : onTogglePlay(post.id))}
+              accessibilityRole="button"
+              accessibilityLabel={
+                showError ? 'Retry playback' : isActive && isPlaying ? 'Pause' : 'Play'
+              }
+              className="absolute h-16 w-16 items-center justify-center rounded-full bg-black/45"
+            >
+              {showError ? (
+                <RotateCcw color={PALETTE.onCover} size={26} />
+              ) : showSpinner ? (
+                <Spinner size="sm" />
+              ) : isActive && isPlaying ? (
+                <Pause color={PALETTE.onCover} size={26} fill={PALETTE.onCover} />
+              ) : (
+                <Play color={PALETTE.onCover} size={26} fill={PALETTE.onCover} />
+              )}
+            </Pressable>
           </View>
         </CoverArt>
 
-        <Typography type="body-xs" color="muted" className="mt-4">
-          {isActive && isPlaying ? 'Tap to pause' : 'Tap to play'}
-        </Typography>
+        {showError ? (
+          <View className="mt-4 items-center px-8">
+            <View className="flex-row items-center gap-1.5">
+              <TriangleAlert color={PALETTE.danger} size={14} />
+              <Typography type="body-xs" className="text-danger">
+                {error}
+              </Typography>
+            </View>
+            <Button size="sm" variant="tertiary" className="mt-3" onPress={onRetry}>
+              <Button.Label>Retry</Button.Label>
+            </Button>
+          </View>
+        ) : (
+          <Typography type="body-xs" color="muted" className="mt-4">
+            {statusLabel}
+          </Typography>
+        )}
       </Pressable>
 
       <View className="px-5" style={{ paddingBottom: bottomInset + 14 }}>
@@ -113,13 +172,13 @@ function AudioReelComponent({
                 type="body-sm"
                 weight="semibold"
                 numberOfLines={1}
-                className="max-w-[55%]"
+                className="max-w-[45%]"
               >
-                {creator.handle}
+                {creator.name}
               </Typography>
               {creator.isVerified ? <BadgeCheck color={PALETTE.accent} size={14} /> : null}
-              <Typography type="body-xs" color="muted">
-                · {formatRelativeTime(post.createdAt)}
+              <Typography type="body-xs" color="muted" numberOfLines={1} className="max-w-[35%]">
+                {creator.handle}
               </Typography>
             </View>
 
@@ -130,7 +189,16 @@ function AudioReelComponent({
               {post.description}
             </Typography>
 
-            <View className="mt-2.5 flex-row flex-wrap gap-2">
+            <View className="mt-2.5 flex-row items-center gap-2">
+              <Chip size="sm" variant="tertiary">
+                <Chip.Label>{post.category}</Chip.Label>
+              </Chip>
+              <Typography type="body-xs" color="muted">
+                {formatDuration(total)} · {formatRelativeTime(post.createdAt)}
+              </Typography>
+            </View>
+
+            <View className="mt-2 flex-row flex-wrap gap-2">
               {post.tags.map((tag) => (
                 <View key={tag} className="bg-surface-secondary/80 rounded-full px-2.5 py-0.5">
                   <Typography type="body-xs">#{tag}</Typography>
@@ -193,11 +261,13 @@ function AudioReelComponent({
 
         <View className="mt-4">
           <Slider
-            value={Math.min(isActive ? position : 0, post.durationSec)}
+            value={Math.min(elapsed, Math.max(total, 1))}
             minValue={0}
-            maxValue={Math.max(post.durationSec, 1)}
+            maxValue={Math.max(total, 1)}
             step={1}
-            onChange={handleSliderChange}
+            isDisabled={!isActive || showError}
+            onChange={(value) => onScrub(singleSliderValue(value))}
+            onChangeEnd={(value) => onScrubEnd(singleSliderValue(value))}
           >
             <Slider.Track className="bg-wave-track h-1">
               <Slider.Fill className="bg-accent" />
@@ -206,10 +276,10 @@ function AudioReelComponent({
           </Slider>
           <View className="mt-2 flex-row justify-between">
             <Typography type="body-xs" color="muted">
-              {formatDuration(isActive ? position : 0)}
+              {formatDuration(elapsed)}
             </Typography>
             <Typography type="body-xs" color="muted">
-              -{formatDuration(Math.max(0, post.durationSec - (isActive ? position : 0)))}
+              -{formatDuration(Math.max(0, total - elapsed))}
             </Typography>
           </View>
         </View>

@@ -42,7 +42,22 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     extra: {
       appStoreAppId: process.env.BILT_APP_STORE_APP_ID,
     },
-    plugins: ['expo-router', 'expo-font', ...nativePlugins],
+    plugins: [
+      'expo-router',
+      'expo-font',
+      // Background playback is the point of the app: the plugin adds the Android
+      // media-playback foreground service and the iOS `audio` background mode.
+      [
+        'expo-audio',
+        {
+          enableBackgroundPlayback: true,
+          // Blipp only plays audio for now; recording is still mocked.
+          recordAudioAndroid: false,
+          microphonePermission: false,
+        },
+      ],
+      ...nativePlugins,
+    ],
     experiments: {
       typedRoutes: true,
       reactCompiler: true,

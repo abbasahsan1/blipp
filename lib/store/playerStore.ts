@@ -1,119 +1,242 @@
 import { create } from 'zustand';
 
+import { audioSeek } from '@/lib/audio/bridge';
 import { useFeedStore } from '@/lib/store/feedStore';
 
 export const PLAYBACK_SPEEDS = [1, 1.25, 1.5, 2] as const;
 export type PlaybackSpeed = (typeof PLAYBACK_SPEEDS)[number];
 
+/** Snapshot of the native player, pushed in by the audio engine. */
+export interface PlaybackStatusUpdate {
+  position: number;
+  duration: number;
+  isBuffering: boolean;
+  isLoaded: boolean;
+}
+
 interface PlayerState {
   currentId: string | null;
   queueIds: string[];
+  /** Playback intent. The audio engine plays or pauses the native player from this. */
   isPlaying: boolean;
-  /** Simulated playback position in seconds. */
+  /** Position in seconds, reported by the player or moved locally while scrubbing. */
   position: number;
+  /** Real duration in seconds once the source loads, 0 before that. */
+  duration: number;
+  isBuffering: boolean;
+  isLoaded: boolean;
+  isScrubbing: boolean;
+  /** Human-readable playback failure, shown inline in both players. */
+  error: string | null;
+  /** Bumped by retry() so the engine reloads the current source. */
+  loadToken: number;
   isExpanded: boolean;
   speed: PlaybackSpeed;
-  playPost: (postId: string, queueIds?: string[], options?: { expand?: boolean }) => void;
+
+  playPost: (
+    postId: string,
+    queueIds?: string[],
+    options?: { expand?: boolean; autoplay?: boolean },
+  ) => void;
   togglePlay: () => void;
   playNext: () => void;
   playPrevious: () => void;
   seek: (position: number) => void;
   skipBy: (seconds: number) => void;
-  tick: (deltaSeconds: number) => void;
+  /** Moves the displayed position while a slider is being dragged. */
+  scrubTo: (position: number) => void;
+  /** Commits a drag: seeks the player and hands position control back to it. */
+  endScrub: (position: number) => void;
   expand: () => void;
   collapse: () => void;
   stop: () => void;
   cycleSpeed: () => void;
+  retry: () => void;
+  reportStatus: (status: PlaybackStatusUpdate) => void;
+  reportError: (message: string) => void;
+  trackEnded: () => void;
 }
 
-function durationOf(postId: string | null): number {
+/** Duration a post reports before its file has loaded. */
+function reportedDuration(postId: string | null): number {
   if (!postId) return 0;
   return useFeedStore.getState().posts.find((post) => post.id === postId)?.durationSec ?? 0;
 }
 
-export const usePlayerStore = create<PlayerState>((set, get) => ({
-  currentId: null,
-  queueIds: [],
-  isPlaying: false,
-  position: 0,
-  isExpanded: false,
-  speed: 1,
-
-  playPost: (postId, queueIds, options) => {
+export const usePlayerStore = create<PlayerState>((set, get) => {
+  const clamp = (position: number): number => {
     const state = get();
-    const nextQueue = queueIds ?? (state.queueIds.includes(postId) ? state.queueIds : [postId]);
-    const isSameTrack = state.currentId === postId;
+    const limit = state.duration > 0 ? state.duration : reportedDuration(state.currentId);
+    if (limit <= 0) return Math.max(0, position);
+    return Math.min(limit, Math.max(0, position));
+  };
 
-    set({
-      currentId: postId,
-      queueIds: nextQueue,
-      position: isSameTrack ? state.position : 0,
-      isPlaying: true,
-      isExpanded: options?.expand ?? state.isExpanded,
-    });
-  },
+  return {
+    currentId: null,
+    queueIds: [],
+    isPlaying: false,
+    position: 0,
+    duration: 0,
+    isBuffering: false,
+    isLoaded: false,
+    isScrubbing: false,
+    error: null,
+    loadToken: 0,
+    isExpanded: false,
+    speed: 1,
 
-  togglePlay: () => {
-    if (!get().currentId) return;
-    set((state) => ({ isPlaying: !state.isPlaying }));
-  },
+    playPost: (postId, queueIds, options) => {
+      const state = get();
+      const nextQueue = queueIds ?? (state.queueIds.includes(postId) ? state.queueIds : [postId]);
+      const shouldPlay = options?.autoplay ?? true;
+      const isExpanded = options?.expand ?? state.isExpanded;
 
-  playNext: () => {
-    const { currentId, queueIds } = get();
-    const index = currentId ? queueIds.indexOf(currentId) : -1;
-    const nextId = index >= 0 ? queueIds[index + 1] : undefined;
-    if (!nextId) {
-      set({ isPlaying: false, position: durationOf(currentId) });
-      return;
-    }
-    set({ currentId: nextId, position: 0, isPlaying: true });
-  },
+      if (state.currentId === postId) {
+        set({ queueIds: nextQueue, isPlaying: shouldPlay, isExpanded });
+        return;
+      }
 
-  playPrevious: () => {
-    const { currentId, queueIds, position } = get();
-    if (position > 3) {
-      set({ position: 0, isPlaying: true });
-      return;
-    }
-    const index = currentId ? queueIds.indexOf(currentId) : -1;
-    const previousId = index > 0 ? queueIds[index - 1] : undefined;
-    if (!previousId) {
-      set({ position: 0 });
-      return;
-    }
-    set({ currentId: previousId, position: 0, isPlaying: true });
-  },
+      set({
+        currentId: postId,
+        queueIds: nextQueue,
+        isPlaying: shouldPlay,
+        position: 0,
+        duration: 0,
+        isBuffering: shouldPlay,
+        isLoaded: false,
+        isScrubbing: false,
+        error: null,
+        isExpanded,
+      });
+    },
 
-  seek: (position) => {
-    const duration = durationOf(get().currentId);
-    set({ position: Math.min(duration, Math.max(0, position)) });
-  },
+    togglePlay: () => {
+      const state = get();
+      if (!state.currentId) return;
+      // A failed load has nothing to resume, so the same button retries.
+      if (state.error) {
+        get().retry();
+        return;
+      }
+      set({ isPlaying: !state.isPlaying });
+    },
 
-  skipBy: (seconds) => {
-    get().seek(get().position + seconds);
-  },
+    playNext: () => {
+      const { currentId, queueIds } = get();
+      const index = currentId ? queueIds.indexOf(currentId) : -1;
+      const nextId = index >= 0 ? queueIds[index + 1] : undefined;
+      if (!nextId) {
+        set({ isPlaying: false });
+        return;
+      }
+      get().playPost(nextId, queueIds);
+    },
 
-  tick: (deltaSeconds) => {
-    const { currentId, isPlaying, position, speed } = get();
-    if (!currentId || !isPlaying) return;
+    playPrevious: () => {
+      const { currentId, queueIds } = get();
+      const index = currentId ? queueIds.indexOf(currentId) : -1;
+      const previousId = index > 0 ? queueIds[index - 1] : undefined;
+      if (!previousId) return;
+      get().playPost(previousId, queueIds);
+    },
 
-    const duration = durationOf(currentId);
-    const next = position + deltaSeconds * speed;
-    if (duration > 0 && next >= duration) {
+    seek: (position) => {
+      if (!get().currentId) return;
+      const target = clamp(position);
+      set({ position: target });
+      audioSeek(target);
+    },
+
+    skipBy: (seconds) => {
+      get().seek(get().position + seconds);
+    },
+
+    scrubTo: (position) => {
+      if (!get().currentId) return;
+      set({ isScrubbing: true, position: clamp(position) });
+    },
+
+    endScrub: (position) => {
+      if (!get().currentId) {
+        set({ isScrubbing: false });
+        return;
+      }
+      const target = clamp(position);
+      set({ position: target, isScrubbing: false });
+      audioSeek(target);
+    },
+
+    expand: () => set({ isExpanded: true }),
+    collapse: () => set({ isExpanded: false }),
+
+    stop: () =>
+      set({
+        currentId: null,
+        queueIds: [],
+        isPlaying: false,
+        position: 0,
+        duration: 0,
+        isBuffering: false,
+        isLoaded: false,
+        isScrubbing: false,
+        error: null,
+        isExpanded: false,
+      }),
+
+    cycleSpeed: () => {
+      const index = PLAYBACK_SPEEDS.indexOf(get().speed);
+      set({ speed: PLAYBACK_SPEEDS[(index + 1) % PLAYBACK_SPEEDS.length] });
+    },
+
+    retry: () => {
+      if (!get().currentId) return;
+      set((state) => ({
+        error: null,
+        isBuffering: true,
+        isLoaded: false,
+        isPlaying: true,
+        loadToken: state.loadToken + 1,
+      }));
+    },
+
+    reportStatus: (status) => {
+      const state = get();
+      if (!state.currentId) return;
+
+      const next: Partial<PlayerState> = {};
+      if (!state.isScrubbing && Math.abs(status.position - state.position) > 0.05) {
+        next.position = status.position;
+      }
+      if (status.duration > 0 && Math.abs(status.duration - state.duration) > 0.05) {
+        next.duration = status.duration;
+      }
+      if (status.isBuffering !== state.isBuffering) next.isBuffering = status.isBuffering;
+      if (status.isLoaded !== state.isLoaded) next.isLoaded = status.isLoaded;
+      if (status.isLoaded && state.error) next.error = null;
+
+      if (Object.keys(next).length > 0) set(next);
+    },
+
+    reportError: (message) => {
+      if (!get().currentId) return;
+      set({ error: message, isPlaying: false, isBuffering: false, isLoaded: false });
+    },
+
+    trackEnded: () => {
       get().playNext();
-      return;
-    }
-    set({ position: next });
-  },
+    },
+  };
+});
 
-  expand: () => set({ isExpanded: true }),
-  collapse: () => set({ isExpanded: false }),
-  stop: () =>
-    set({ currentId: null, queueIds: [], isPlaying: false, position: 0, isExpanded: false }),
-
-  cycleSpeed: () => {
-    const current = get().speed;
-    const index = PLAYBACK_SPEEDS.indexOf(current);
-    set({ speed: PLAYBACK_SPEEDS[(index + 1) % PLAYBACK_SPEEDS.length] });
-  },
-}));
+/** Where the current post sits in the queue, for enabling skip controls. */
+export function queueBounds(
+  queueIds: string[],
+  currentId: string | null,
+): { index: number; hasPrevious: boolean; hasNext: boolean } {
+  const index = currentId ? queueIds.indexOf(currentId) : -1;
+  return {
+    index,
+    hasPrevious: index > 0,
+    hasNext: index >= 0 && index < queueIds.length - 1,
+  };
+}

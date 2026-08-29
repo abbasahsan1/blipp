@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import { makeWaveform, MOCK_POSTS, MY_CREATOR_ID } from '@/lib/mockData';
+import { makeWaveform, MOCK_POSTS, MY_CREATOR_ID, sampleAudioUrl } from '@/lib/mockData';
 import type { AudioPost, FeedCategory, NewPostInput } from '@/lib/types';
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -16,6 +16,8 @@ interface FeedState {
   setCategory: (category: FeedCategory) => Promise<void>;
   toggleLike: (postId: string) => void;
   addPost: (input: NewPostInput) => AudioPost;
+  /** Replaces a post's estimated duration with the real length of its audio file. */
+  syncDuration: (postId: string, durationSec: number) => void;
 }
 
 export const useFeedStore = create<FeedState>((set, get) => ({
@@ -63,6 +65,9 @@ export const useFeedStore = create<FeedState>((set, get) => ({
       title: input.title.trim(),
       description: input.description.trim(),
       creatorId: MY_CREATOR_ID,
+      category: input.category,
+      // Recording is still mocked, so new posts borrow a placeholder audio file.
+      audioUrl: sampleAudioUrl(get().posts.length),
       durationSec: input.durationSec,
       plays: 0,
       likes: 0,
@@ -74,6 +79,18 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     };
     set((state) => ({ posts: [post, ...state.posts] }));
     return post;
+  },
+
+  syncDuration: (postId, durationSec) => {
+    const rounded = Math.round(durationSec);
+    if (rounded <= 0) return;
+    const existing = get().posts.find((post) => post.id === postId);
+    if (!existing || existing.durationSec === rounded) return;
+    set((state) => ({
+      posts: state.posts.map((post) =>
+        post.id === postId ? { ...post, durationSec: rounded } : post,
+      ),
+    }));
   },
 }));
 

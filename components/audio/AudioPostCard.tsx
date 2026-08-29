@@ -117,7 +117,10 @@ function AudioPostCardComponent({
         </View>
 
         <View className="flex-1 flex-row justify-end gap-1.5">
-          {post.tags.slice(0, 2).map((tag) => (
+          <View className="bg-surface-tertiary rounded-full px-2 py-0.5">
+            <Typography type="body-xs">{post.category}</Typography>
+          </View>
+          {post.tags.slice(0, 1).map((tag) => (
             <View key={tag} className="bg-surface-secondary rounded-full px-2 py-0.5">
               <Typography type="body-xs">#{tag}</Typography>
             </View>

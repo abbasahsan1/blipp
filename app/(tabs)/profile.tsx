@@ -33,6 +33,7 @@ export default function ProfileScreen() {
   const currentId = usePlayerStore((state) => state.currentId);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const position = usePlayerStore((state) => state.position);
+  const duration = usePlayerStore((state) => state.duration);
   const playPost = usePlayerStore((state) => state.playPost);
   const stopPlayback = usePlayerStore((state) => state.stop);
 
@@ -213,6 +214,7 @@ export default function ProfileScreen() {
             {myPosts.map((post) => {
               const creator = CREATORS_BY_ID[post.creatorId] ?? account;
               const isCurrent = post.id === currentId;
+              const total = isCurrent && duration > 0 ? duration : post.durationSec;
               return (
                 <AudioPostCard
                   key={post.id}
@@ -220,7 +222,7 @@ export default function ProfileScreen() {
                   creator={creator}
                   isCurrent={isCurrent}
                   isPlaying={isCurrent && isPlaying}
-                  progress={isCurrent && post.durationSec > 0 ? position / post.durationSec : 0}
+                  progress={isCurrent && total > 0 ? Math.min(1, position / total) : 0}
                   onPress={() => playPost(post.id, myPostIds, { expand: true })}
                   onToggleLike={() => toggleLike(post.id)}
                 />

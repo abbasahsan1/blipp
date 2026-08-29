@@ -5,6 +5,7 @@ import {
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  Platform,
   RefreshControl,
   View,
 } from 'react-native';
@@ -40,12 +41,17 @@ export default function FeedScreen() {
 
   const currentId = usePlayerStore((state) => state.currentId);
   const isPlaying = usePlayerStore((state) => state.isPlaying);
+  const isBuffering = usePlayerStore((state) => state.isBuffering);
+  const error = usePlayerStore((state) => state.error);
   const position = usePlayerStore((state) => state.position);
+  const duration = usePlayerStore((state) => state.duration);
   const speed = usePlayerStore((state) => state.speed);
   const playPost = usePlayerStore((state) => state.playPost);
   const togglePlay = usePlayerStore((state) => state.togglePlay);
-  const seek = usePlayerStore((state) => state.seek);
+  const scrubTo = usePlayerStore((state) => state.scrubTo);
+  const endScrub = usePlayerStore((state) => state.endScrub);
   const cycleSpeed = usePlayerStore((state) => state.cycleSpeed);
+  const retry = usePlayerStore((state) => state.retry);
 
   const [pageHeight, setPageHeight] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -100,14 +106,16 @@ export default function FeedScreen() {
     [togglePlay, playPost],
   );
 
-  // Autoplay the top of the feed on first load and whenever the category changes.
+  // Queue the top of the feed on first load and whenever the category changes.
+  // Browsers block audio that starts without a user gesture, so on web the first
+  // post is selected but left paused.
   useEffect(() => {
     if (isLoading) return;
     const first = orderedRef.current[0];
     if (!first) return;
     setActiveIndex(0);
     listRef.current?.scrollToOffset({ offset: 0, animated: false });
-    playPost(first.id, queueIdsRef.current);
+    playPost(first.id, queueIdsRef.current, { autoplay: Platform.OS !== 'web' });
   }, [category, isLoading, playPost]);
 
   // Follow the player when a track ends or is picked from another screen.
@@ -133,13 +141,18 @@ export default function FeedScreen() {
           bottomInset={0}
           isActive={isActive}
           isPlaying={isActive && isPlaying}
+          isBuffering={isActive && isBuffering}
+          error={isActive ? error : null}
           position={isActive ? position : 0}
+          duration={isActive ? duration : 0}
           speed={speed}
           showSwipeHint={index === 0}
           onTogglePlay={handleTogglePlay}
-          onSeek={seek}
+          onScrub={scrubTo}
+          onScrubEnd={endScrub}
           onToggleLike={toggleLike}
           onCycleSpeed={cycleSpeed}
+          onRetry={retry}
         />
       );
     },
@@ -148,12 +161,17 @@ export default function FeedScreen() {
       pageHeight,
       headerInset,
       isPlaying,
+      isBuffering,
+      error,
       position,
+      duration,
       speed,
       handleTogglePlay,
-      seek,
+      scrubTo,
+      endScrub,
       toggleLike,
       cycleSpeed,
+      retry,
     ],
   );
 

@@ -23,6 +23,7 @@ import { makeWaveform, TAG_SUGGESTIONS } from '@/lib/mockData';
 import { PALETTE } from '@/lib/palette';
 import { useFeedStore } from '@/lib/store/feedStore';
 import { usePlayerStore } from '@/lib/store/playerStore';
+import { POST_CATEGORIES, type PostCategory } from '@/lib/types';
 
 type RecordStage = 'idle' | 'recording' | 'ready';
 
@@ -40,6 +41,7 @@ export default function UploadScreen() {
   const [bars, setBars] = useState<number[]>([]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [category, setCategory] = useState<PostCategory>('Journal');
   const [tags, setTags] = useState<string[]>([]);
   const [isPublic, setIsPublic] = useState(true);
   const [isPublishing, setIsPublishing] = useState(false);
@@ -111,6 +113,7 @@ export default function UploadScreen() {
     addPost({
       title: trimmedTitle,
       description: description.trim(),
+      category,
       tags,
       durationSec: Math.round(elapsed),
       waveform: bars,
@@ -282,6 +285,31 @@ export default function UploadScreen() {
               maxLength={280}
             />
           </TextField>
+
+          <View>
+            <Label>Category</Label>
+            <Typography type="body-xs" color="muted" className="mt-1">
+              Shown as a chip on your post in the feed.
+            </Typography>
+            <View className="mt-3 flex-row flex-wrap gap-2">
+              {POST_CATEGORIES.map((option) => {
+                const isSelected = option === category;
+                return (
+                  <Chip
+                    key={option}
+                    size="sm"
+                    color="accent"
+                    variant={isSelected ? 'primary' : 'tertiary'}
+                    onPress={() => setCategory(option)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                  >
+                    <Chip.Label>{option}</Chip.Label>
+                  </Chip>
+                );
+              })}
+            </View>
+          </View>
 
           <View>
             <Label>Tags</Label>

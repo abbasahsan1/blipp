@@ -1,4 +1,4 @@
-import type { Account, AudioPost, Creator } from '@/lib/types';
+import type { Account, AudioPost, Creator, PostCategory } from '@/lib/types';
 
 /** Deterministic pseudo-random generator so waveforms stay stable across renders. */
 function seededRandom(seed: number): () => number {
@@ -17,6 +17,22 @@ export function makeWaveform(seed: number, bars = 48): number[] {
     const value = 0.25 + random() * 0.75 * envelope;
     return Math.min(1, Math.max(0.12, value));
   });
+}
+
+/**
+ * Placeholder audio files. Real, streamable MP3s so playback, scrubbing and
+ * background listening work before a backend exists. Reported durations below
+ * come from the mock seeds and are corrected once a file actually loads.
+ */
+export const SAMPLE_AUDIO_URLS: string[] = Array.from(
+  { length: 17 },
+  (_, index) => `https://www.soundhelix.com/examples/mp3/SoundHelix-Song-${index + 1}.mp3`,
+);
+
+export function sampleAudioUrl(index: number): string {
+  const safe =
+    ((index % SAMPLE_AUDIO_URLS.length) + SAMPLE_AUDIO_URLS.length) % SAMPLE_AUDIO_URLS.length;
+  return SAMPLE_AUDIO_URLS[safe];
 }
 
 const MINUTE = 60_000;
@@ -87,6 +103,26 @@ export const CREATORS: Creator[] = [
     followers: 7_310,
     isVerified: false,
   },
+  {
+    id: 'c-byte',
+    name: 'Byte Diary',
+    handle: '@bytediary',
+    initials: 'BD',
+    gradient: ['#38BDF8', '#0EA5E9'],
+    bio: 'Gadget reviews you can follow without looking at a screen.',
+    followers: 64_900,
+    isVerified: true,
+  },
+  {
+    id: 'c-twochairs',
+    name: 'Two Chairs',
+    handle: '@twochairs',
+    initials: 'TC',
+    gradient: ['#FB7185', '#F59E0B'],
+    bio: 'Sketch comedy for headphones. One mic, two voices.',
+    followers: 18_450,
+    isVerified: false,
+  },
 ];
 
 export const CREATORS_BY_ID: Record<string, Creator> = Object.fromEntries(
@@ -105,6 +141,7 @@ interface PostSeed {
   title: string;
   description: string;
   creatorId: string;
+  category: PostCategory;
   durationSec: number;
   plays: number;
   likes: number;
@@ -120,6 +157,7 @@ const POST_SEEDS: PostSeed[] = [
     description:
       'A short reset for the first ten minutes of your commute. No screens, no notes, just three things to say out loud before you park.',
     creatorId: 'c-nova',
+    category: 'Podcast',
     durationSec: 94,
     plays: 184_300,
     likes: 21_400,
@@ -128,11 +166,26 @@ const POST_SEEDS: PostSeed[] = [
     ageMs: 3 * HOUR,
   },
   {
+    id: 'p-15',
+    title: 'Three weeks with the cheapest noise-cancelling buds',
+    description:
+      'Spoken measurements instead of charts: how they handle a bus engine, a dishwasher and a gym fan, plus the one deal-breaker.',
+    creatorId: 'c-byte',
+    category: 'Tech Review',
+    durationSec: 268,
+    plays: 143_600,
+    likes: 17_900,
+    comments: 1_240,
+    tags: ['tech', 'review'],
+    ageMs: 7 * HOUR,
+  },
+  {
     id: 'p-02',
     title: 'Rain on a parked car, unedited',
     description:
       'Twelve minutes of rain hitting a hatchback roof in a supermarket parking lot. Recorded on a phone, kept exactly as it happened.',
     creatorId: 'c-lowfi',
+    category: 'Ambient',
     durationSec: 726,
     plays: 62_100,
     likes: 8_940,
@@ -141,11 +194,26 @@ const POST_SEEDS: PostSeed[] = [
     ageMs: 9 * HOUR,
   },
   {
+    id: 'p-16',
+    title: 'A night-shift nurse on what 4am sounds like',
+    description:
+      'Forty minutes trimmed to seven. She describes a ward by ear: which machines you learn to ignore and which ones you never do.',
+    creatorId: 'c-nova',
+    category: 'Interview',
+    durationSec: 412,
+    plays: 98_400,
+    likes: 15_300,
+    comments: 703,
+    tags: ['interview', 'stories'],
+    ageMs: 14 * HOUR,
+  },
+  {
     id: 'p-03',
     title: 'Three cues to fix your squat depth mid-set',
     description:
       'Listen between sets. Ribs down, knees out, drive the floor apart. Sixty seconds, no video needed.',
     creatorId: 'c-rune',
+    category: 'Coaching',
     durationSec: 68,
     plays: 96_800,
     likes: 14_220,
@@ -154,11 +222,26 @@ const POST_SEEDS: PostSeed[] = [
     ageMs: 26 * HOUR,
   },
   {
+    id: 'p-17',
+    title: 'Skit: the man who narrates his own commute',
+    description:
+      'Two minutes of a very confident driver describing every roundabout as if it were a nature documentary.',
+    creatorId: 'c-twochairs',
+    category: 'Skit',
+    durationSec: 132,
+    plays: 211_700,
+    likes: 39_800,
+    comments: 2_460,
+    tags: ['comedy', 'commute'],
+    ageMs: 20 * HOUR,
+  },
+  {
     id: 'p-04',
     title: 'Why every airport smells the same',
     description:
       'A tiny investigation that started in a terminal at 5am and ended with a call to a cleaning-supply chemist.',
     creatorId: 'c-hara',
+    category: 'Story',
     durationSec: 212,
     plays: 41_700,
     likes: 6_180,
@@ -172,6 +255,7 @@ const POST_SEEDS: PostSeed[] = [
     description:
       'A steady 20-minute bed of warm noise with soft markers every five minutes so you can track time without looking.',
     creatorId: 'c-deep',
+    category: 'Ambient',
     durationSec: 1_215,
     plays: 310_400,
     likes: 38_900,
@@ -180,11 +264,26 @@ const POST_SEEDS: PostSeed[] = [
     ageMs: 5 * HOUR,
   },
   {
+    id: 'p-18',
+    title: 'Is a two-hour commute ever worth it? Two takes',
+    description:
+      'A cheap-flights obsessive and a strength coach argue about time, rent and what you actually do with a train seat.',
+    creatorId: 'c-hara',
+    category: 'Discussion',
+    durationSec: 356,
+    plays: 57_800,
+    likes: 7_920,
+    comments: 884,
+    tags: ['discussion', 'work'],
+    ageMs: 33 * HOUR,
+  },
+  {
     id: 'p-06',
     title: 'I recorded my grandmother explaining her stew',
     description:
       'She refuses to write it down, so I asked her to talk me through it while she cooked. Best four minutes on my phone.',
     creatorId: 'c-hara',
+    category: 'Interview',
     durationSec: 248,
     plays: 128_900,
     likes: 27_600,
@@ -198,6 +297,7 @@ const POST_SEEDS: PostSeed[] = [
     description:
       'Engine hum, a door chime, someone laughing two rows back. Field recording from the last bus out of the city.',
     creatorId: 'c-lowfi',
+    category: 'Ambient',
     durationSec: 448,
     plays: 22_100,
     likes: 3_040,
@@ -206,11 +306,26 @@ const POST_SEEDS: PostSeed[] = [
     ageMs: 46 * MINUTE,
   },
   {
+    id: 'p-19',
+    title: 'Podcast clip: why voice notes beat email',
+    description:
+      'Six minutes from a longer episode on remote teams, and the rule that keeps voice notes from becoming a second inbox.',
+    creatorId: 'c-byte',
+    category: 'Podcast',
+    durationSec: 205,
+    plays: 39_200,
+    likes: 5_140,
+    comments: 214,
+    tags: ['work', 'tips'],
+    ageMs: 2 * DAY,
+  },
+  {
     id: 'p-08',
     title: 'The two-minute grocery list method',
     description:
       'How to plan a week of dinners while walking to the shop, using nothing but your voice and one rule.',
     creatorId: 'c-nova',
+    category: 'Podcast',
     durationSec: 137,
     plays: 74_500,
     likes: 9_870,
@@ -224,6 +339,7 @@ const POST_SEEDS: PostSeed[] = [
     description:
       'Eight movements, called out in order, with a count you can follow while half asleep.',
     creatorId: 'c-rune',
+    category: 'Coaching',
     durationSec: 305,
     plays: 55_300,
     likes: 7_410,
@@ -237,6 +353,7 @@ const POST_SEEDS: PostSeed[] = [
     description:
       'It was not invented in an elevator. It was invented in a queue, and it was much longer.',
     creatorId: 'c-nova',
+    category: 'Story',
     durationSec: 168,
     plays: 33_600,
     likes: 4_120,
@@ -250,6 +367,7 @@ const POST_SEEDS: PostSeed[] = [
     description:
       'A rhythm track built at exactly the speed of folding a basket of shirts. Tested extensively.',
     creatorId: 'c-deep',
+    category: 'Ambient',
     durationSec: 733,
     plays: 88_200,
     likes: 11_050,
@@ -263,6 +381,7 @@ const POST_SEEDS: PostSeed[] = [
     description:
       'Recorded in a stairwell, unedited. Posting it because the version where I sound composed helps nobody.',
     creatorId: MY_CREATOR_ID,
+    category: 'Journal',
     durationSec: 194,
     plays: 12_480,
     likes: 2_310,
@@ -276,6 +395,7 @@ const POST_SEEDS: PostSeed[] = [
     description:
       'A short list, and the one rule I keep: nothing that makes me want to look at the screen.',
     creatorId: MY_CREATOR_ID,
+    category: 'Journal',
     durationSec: 156,
     plays: 8_940,
     likes: 1_460,
@@ -288,6 +408,7 @@ const POST_SEEDS: PostSeed[] = [
     title: 'Reading my old gym log out loud',
     description: 'Three years of numbers in four minutes. It sounds slow until the very end.',
     creatorId: MY_CREATOR_ID,
+    category: 'Journal',
     durationSec: 231,
     plays: 5_120,
     likes: 730,
@@ -302,6 +423,8 @@ export const MOCK_POSTS: AudioPost[] = POST_SEEDS.map((seed, index) => ({
   title: seed.title,
   description: seed.description,
   creatorId: seed.creatorId,
+  category: seed.category,
+  audioUrl: sampleAudioUrl(index),
   durationSec: seed.durationSec,
   plays: seed.plays,
   likes: seed.likes,
@@ -323,4 +446,6 @@ export const TAG_SUGGESTIONS = [
   'ambient',
   'food',
   'work',
+  'tech',
+  'comedy',
 ];
