@@ -14,11 +14,12 @@ import {
   clearMediaSession,
   ensureMediaNotificationPermission,
   resolveNotificationArtwork,
+  syncMediaSessionPlayback,
   updateMediaSessionMetadata,
-  type MediaSessionMetadata,
 } from '@/lib/audio/mediaSession';
+import type { MediaSessionCommands, MediaSessionMetadata } from '@/lib/audio/mediaSession.types';
 import { selectPost, useFeedStore } from '@/lib/store/feedStore';
-import { usePlayerStore } from '@/lib/store/playerStore';
+import { queueBounds, usePlayerStore } from '@/lib/store/playerStore';
 
 const STATUS_INTERVAL_MS = 250;
 /** How long a source may stay unloaded before it counts as a failure. */
@@ -46,6 +47,7 @@ export function useAudioEngine(): void {
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const speed = usePlayerStore((state) => state.speed);
   const loadToken = usePlayerStore((state) => state.loadToken);
+  const queueIds = usePlayerStore((state) => state.queueIds);
   const post = useFeedStore((state) => selectPost(state, currentId));
   const audioUrl = post?.audioUrl;
   const title = post?.title;
@@ -64,6 +66,28 @@ export function useAudioEngine(): void {
   const intentRef = useRef({ playing: false, confirmed: false });
   /** Whether the media session accepted this player and owns a notification. */
   const sessionActiveRef = useRef(false);
+  /**
+   * What an outside control surface — a browser's now-playing card, a headset —
+   * is allowed to do. Every command goes through the store rather than the
+   * native player, so the mini and full players follow along. Store actions are
+   * read at call time, which keeps this object stable for the session's lifetime.
+   */
+  const commandsRef = useRef<MediaSessionCommands>({
+    play: () => {
+      const store = usePlayerStore.getState();
+      if (store.error) store.retry();
+      else if (!store.isPlaying) store.togglePlay();
+    },
+    pause: () => {
+      const store = usePlayerStore.getState();
+      if (store.isPlaying) store.togglePlay();
+    },
+    stop: () => usePlayerStore.getState().stop(),
+    next: () => usePlayerStore.getState().playNext(),
+    previous: () => usePlayerStore.getState().playPrevious(),
+    seekBy: (seconds) => usePlayerStore.getState().skipBy(seconds),
+    seekTo: (seconds) => usePlayerStore.getState().seek(seconds),
+  });
   /** Last position seen for the current post, used to measure what was heard. */
   const listenRef = useRef<{ postId: string | null; position: number }>({
     postId: null,
@@ -277,13 +301,31 @@ export function useAudioEngine(): void {
       if (cancelled || sessionActiveRef.current) return;
       // A device that refuses the session keeps the in-app controls: playback,
       // scrubbing and the mini/full player never depended on it.
-      sessionActiveRef.current = activateMediaSession(player, metadata);
+      sessionActiveRef.current = activateMediaSession(player, metadata, commandsRef.current);
     });
 
     return () => {
       cancelled = true;
     };
   }, [player, currentId, metadata, isPlaying]);
+
+  /**
+   * Browsers build their now-playing card from what the page publishes, so the
+   * play/pause icon, progress bar and skip buttons have to be pushed as playback
+   * moves. A no-op on native, where the session reads the player directly.
+   */
+  useEffect(() => {
+    if (!sessionActiveRef.current) return;
+    const { hasNext, hasPrevious } = queueBounds(queueIds, currentId);
+    syncMediaSessionPlayback({
+      isPlaying,
+      position: status.currentTime,
+      duration: status.duration,
+      speed,
+      hasNext,
+      hasPrevious,
+    });
+  }, [status, isPlaying, speed, queueIds, currentId]);
 
   // Nothing is playing any more, so the notification should go away.
   useEffect(() => {

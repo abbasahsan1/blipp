@@ -1,6 +1,12 @@
 import { Asset } from 'expo-asset';
 import type { AudioLockScreenOptions, AudioMetadata, AudioPlayer } from 'expo-audio';
 
+import type {
+  MediaSessionCommands,
+  MediaSessionMetadata,
+  MediaSessionPlayback,
+} from '@/lib/audio/mediaSession.types';
+
 export { ensureMediaNotificationPermission } from '@/lib/audio/notificationPermission';
 
 /**
@@ -23,18 +29,6 @@ export { ensureMediaNotificationPermission } from '@/lib/audio/notificationPermi
  * - The seek buttons move by a fixed 10 seconds, independent of the in-app
  *   ±15s controls.
  */
-
-/** Metadata shown on the lock screen and in the notification shade. */
-export interface MediaSessionMetadata {
-  /** Post title, shown as the notification title. */
-  title: string;
-  /** Creator name, shown as the notification text. */
-  artist: string;
-  /** Category, shown as the notification sub text. */
-  albumTitle?: string;
-  /** Absolute `http(s)` or `file` URL; other schemes are ignored natively. */
-  artworkUrl?: string;
-}
 
 /** Only the lock screen surface of `AudioPlayer`, and only if the runtime has it. */
 type LockScreenControls = {
@@ -95,10 +89,18 @@ export async function resolveNotificationArtwork(): Promise<string | undefined> 
  * Publishes the notification and makes this player the one the lock screen and
  * hardware media buttons talk to.
  *
+ * `commands` is accepted for parity with the web session and deliberately
+ * unused: Media3 routes every button straight into this player, and the engine
+ * adopts the resulting play/pause change from the player's status.
+ *
  * @returns whether the session took ownership; `false` means keep using the
  * in-app controls and don't bother updating metadata later.
  */
-export function activateMediaSession(player: AudioPlayer, metadata: MediaSessionMetadata): boolean {
+export function activateMediaSession(
+  player: AudioPlayer,
+  metadata: MediaSessionMetadata,
+  _commands?: MediaSessionCommands,
+): boolean {
   if (sessionUnavailable) return false;
 
   const activate = controls(player).setActiveForLockScreen;
@@ -128,6 +130,15 @@ export function updateMediaSessionMetadata(
   } catch {
     sessionUnavailable = true;
   }
+}
+
+/**
+ * The native session reads position, duration and playback state from the player
+ * it was handed, so there is nothing to push. Exists so the audio engine can
+ * call one function on every platform.
+ */
+export function syncMediaSessionPlayback(_playback: MediaSessionPlayback): void {
+  // Intentionally empty; see the doc comment.
 }
 
 /** Drops the notification and releases the session. */
