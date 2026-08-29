@@ -15,10 +15,8 @@ import {
   updateMediaSessionMetadata,
   type MediaSessionMetadata,
 } from '@/lib/audio/mediaSession';
-import { creatorFor } from '@/lib/creators';
-import { useFeedStore } from '@/lib/store/feedStore';
+import { selectPost, useFeedStore } from '@/lib/store/feedStore';
 import { usePlayerStore } from '@/lib/store/playerStore';
-import { useSessionStore } from '@/lib/store/sessionStore';
 
 const STATUS_INTERVAL_MS = 250;
 /** How long a source may stay unloaded before it counts as a failure. */
@@ -46,14 +44,11 @@ export function useAudioEngine(): void {
   const isPlaying = usePlayerStore((state) => state.isPlaying);
   const speed = usePlayerStore((state) => state.speed);
   const loadToken = usePlayerStore((state) => state.loadToken);
-  const post = useFeedStore((state) =>
-    currentId ? state.posts.find((item) => item.id === currentId) : undefined,
-  );
+  const post = useFeedStore((state) => selectPost(state, currentId));
   const audioUrl = post?.audioUrl;
   const title = post?.title;
-  const creatorId = post?.creatorId;
+  const creatorName = post?.creator.name;
   const category = post?.category;
-  const account = useSessionStore((state) => state.account);
 
   const speedRef = useRef(speed);
   speedRef.current = speed;
@@ -173,11 +168,18 @@ export function useAudioEngine(): void {
     }
   }, [status]);
 
-  // Mock durations are estimates: correct them once the real file reports one.
+  // Durations are recorded when a file is picked: correct them once the real
+  // file reports its length.
   useEffect(() => {
     if (!currentId || status.duration <= 0) return;
     useFeedStore.getState().syncDuration(currentId, status.duration);
   }, [currentId, status.duration]);
+
+  // A listen counts once the audio is actually running, not when it is queued.
+  useEffect(() => {
+    if (!currentId || !status.isLoaded || !status.playing) return;
+    useFeedStore.getState().countPlay(currentId);
+  }, [currentId, status.isLoaded, status.playing]);
 
   // A source that never loads is a failure the user can retry.
   useEffect(() => {
@@ -206,11 +208,11 @@ export function useAudioEngine(): void {
     if (!title) return null;
     return {
       title,
-      artist: (creatorId ? creatorFor(creatorId, account)?.name : undefined) ?? 'Blipp',
+      artist: creatorName ?? 'Blipp',
       albumTitle: category,
       artworkUrl,
     };
-  }, [title, creatorId, category, artworkUrl, account]);
+  }, [title, creatorName, category, artworkUrl]);
 
   /**
    * Hand the player to the media session on first play, like a music app: the

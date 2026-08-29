@@ -1,4 +1,4 @@
-import { Radio } from 'lucide-react-native';
+import { Radio, TriangleAlert } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
@@ -10,21 +10,19 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Chip, Typography } from 'heroui-native';
+import { Button, Chip, Typography } from 'heroui-native';
 
 import { AudioReel } from '@/components/audio/AudioReel';
 import { ReelSkeleton } from '@/components/audio/ReelSkeleton';
-import { creatorFor } from '@/lib/creators';
 import { PALETTE } from '@/lib/palette';
-import { sortPostsForCategory, useFeedStore } from '@/lib/store/feedStore';
+import { sortPosts, useFeedStore } from '@/lib/store/feedStore';
 import { usePlayerStore } from '@/lib/store/playerStore';
 import { useSessionStore } from '@/lib/store/sessionStore';
-import type { AudioPost, FeedCategory } from '@/lib/types';
+import type { AudioPost, FeedSort } from '@/lib/types';
 
-const CATEGORIES: { value: FeedCategory; label: string }[] = [
-  { value: 'for-you', label: 'For you' },
+const SORTS: { value: FeedSort; label: string }[] = [
+  { value: 'newest', label: 'Newest' },
   { value: 'trending', label: 'Trending' },
-  { value: 'fresh', label: 'Fresh' },
 ];
 
 const HEADER_HEIGHT = 46;
@@ -33,10 +31,13 @@ export default function FeedScreen() {
   const insets = useSafeAreaInsets();
 
   const posts = useFeedStore((state) => state.posts);
-  const category = useFeedStore((state) => state.category);
+  const sort = useFeedStore((state) => state.sort);
   const isLoading = useFeedStore((state) => state.isLoading);
   const isRefreshing = useFeedStore((state) => state.isRefreshing);
-  const setCategory = useFeedStore((state) => state.setCategory);
+  const feedError = useFeedStore((state) => state.error);
+  const loadedFor = useFeedStore((state) => state.loadedFor);
+  const setSort = useFeedStore((state) => state.setSort);
+  const loadFeed = useFeedStore((state) => state.loadFeed);
   const refresh = useFeedStore((state) => state.refresh);
   const toggleLike = useFeedStore((state) => state.toggleLike);
 
@@ -54,13 +55,15 @@ export default function FeedScreen() {
   const cycleSpeed = usePlayerStore((state) => state.cycleSpeed);
   const retry = usePlayerStore((state) => state.retry);
 
-  const account = useSessionStore((state) => state.account);
+  // The feed is public: a viewer id only decides whose likes come back marked.
+  const viewerId = useSessionStore((state) => state.userId);
+  const sessionStatus = useSessionStore((state) => state.status);
 
   const [pageHeight, setPageHeight] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const listRef = useRef<FlatList<AudioPost>>(null);
 
-  const ordered = useMemo(() => sortPostsForCategory(posts, category), [posts, category]);
+  const ordered = useMemo(() => sortPosts(posts, sort), [posts, sort]);
   const queueIds = useMemo(() => ordered.map((post) => post.id), [ordered]);
 
   // Latest values for the scroll handler, which must stay stable across renders.
@@ -83,6 +86,13 @@ export default function FeedScreen() {
   const handleLayout = useCallback((event: LayoutChangeEvent) => {
     setPageHeight(Math.round(event.nativeEvent.layout.height));
   }, []);
+
+  // Signing in or out changes which hearts are filled, so the feed is reloaded
+  // for the new viewer.
+  useEffect(() => {
+    if (sessionStatus === 'loading' || loadedFor === viewerId) return;
+    void loadFeed(viewerId);
+  }, [sessionStatus, viewerId, loadedFor, loadFeed]);
 
   // Snapping a reel into view starts it: the feed is the player.
   const handleSnap = useCallback(
@@ -109,7 +119,14 @@ export default function FeedScreen() {
     [togglePlay, playPost],
   );
 
-  // Queue the top of the feed on first load and whenever the category changes.
+  const handleToggleLike = useCallback(
+    (postId: string) => {
+      void toggleLike(postId, viewerId);
+    },
+    [toggleLike, viewerId],
+  );
+
+  // Queue the top of the feed on first load and whenever the ordering changes.
   // Browsers block audio that starts without a user gesture, so on web the first
   // post is selected but left paused.
   useEffect(() => {
@@ -119,7 +136,7 @@ export default function FeedScreen() {
     setActiveIndex(0);
     listRef.current?.scrollToOffset({ offset: 0, animated: false });
     playPost(first.id, queueIdsRef.current, { autoplay: Platform.OS !== 'web' });
-  }, [category, isLoading, playPost]);
+  }, [sort, isLoading, playPost]);
 
   // Follow the player when a track ends or is picked from another screen.
   useEffect(() => {
@@ -132,13 +149,11 @@ export default function FeedScreen() {
 
   const renderItem = useCallback(
     ({ item, index }: { item: AudioPost; index: number }) => {
-      const creator = creatorFor(item.creatorId, account);
-      if (!creator) return null;
       const isActive = item.id === currentId;
       return (
         <AudioReel
           post={item}
-          creator={creator}
+          creator={item.creator}
           height={pageHeight}
           topInset={headerInset}
           bottomInset={0}
@@ -153,14 +168,13 @@ export default function FeedScreen() {
           onTogglePlay={handleTogglePlay}
           onScrub={scrubTo}
           onScrubEnd={endScrub}
-          onToggleLike={toggleLike}
+          onToggleLike={viewerId ? handleToggleLike : undefined}
           onCycleSpeed={cycleSpeed}
           onRetry={retry}
         />
       );
     },
     [
-      account,
       currentId,
       pageHeight,
       headerInset,
@@ -173,7 +187,8 @@ export default function FeedScreen() {
       handleTogglePlay,
       scrubTo,
       endScrub,
-      toggleLike,
+      viewerId,
+      handleToggleLike,
       cycleSpeed,
       retry,
     ],
@@ -183,6 +198,22 @@ export default function FeedScreen() {
     <View className="bg-background flex-1" onLayout={handleLayout}>
       {pageHeight <= 0 ? null : isLoading ? (
         <ReelSkeleton height={pageHeight} topInset={headerInset} bottomInset={0} />
+      ) : feedError && ordered.length === 0 ? (
+        <View
+          className="flex-1 items-center justify-center px-10"
+          style={{ paddingTop: headerInset }}
+        >
+          <TriangleAlert color={PALETTE.danger} size={32} />
+          <Typography type="body" weight="semibold" align="center" className="mt-4">
+            The feed didn’t load
+          </Typography>
+          <Typography type="body-sm" color="muted" align="center" className="mt-1">
+            {feedError}
+          </Typography>
+          <Button variant="tertiary" className="mt-5" onPress={() => void loadFeed(viewerId)}>
+            <Button.Label>Try again</Button.Label>
+          </Button>
+        </View>
       ) : ordered.length === 0 ? (
         <View
           className="flex-1 items-center justify-center px-10"
@@ -217,7 +248,7 @@ export default function FeedScreen() {
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
-              onRefresh={() => void refresh()}
+              onRefresh={() => void refresh(viewerId)}
               tintColor={PALETTE.accent}
               colors={[PALETTE.accent]}
               progressBackgroundColor={PALETTE.surface}
@@ -233,15 +264,15 @@ export default function FeedScreen() {
         pointerEvents="box-none"
       >
         <View className="flex-row items-center justify-center gap-2">
-          {CATEGORIES.map((item) => {
-            const isActive = item.value === category;
+          {SORTS.map((item) => {
+            const isActive = item.value === sort;
             return (
               <Chip
                 key={item.value}
                 size="sm"
                 color="accent"
                 variant={isActive ? 'primary' : 'tertiary'}
-                onPress={() => void setCategory(item.value)}
+                onPress={() => setSort(item.value)}
                 accessibilityRole="button"
                 accessibilityState={{ selected: isActive }}
               >

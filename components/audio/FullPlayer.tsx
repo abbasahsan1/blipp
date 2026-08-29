@@ -1,8 +1,8 @@
 import {
   ChevronDown,
   FastForward,
+  Headphones,
   Heart,
-  MessageCircle,
   Pause,
   Play,
   Rewind,
@@ -44,11 +44,6 @@ import { PALETTE } from '@/lib/palette';
 import type { AudioPost, Creator } from '@/lib/types';
 import { cn, singleSliderValue } from '@/lib/utils';
 
-export interface QueueEntry {
-  post: AudioPost;
-  creator: Creator;
-}
-
 interface FullPlayerProps {
   post: AudioPost;
   creator: Creator;
@@ -62,7 +57,7 @@ interface FullPlayerProps {
   speed: number;
   hasNext: boolean;
   hasPrevious: boolean;
-  queue: QueueEntry[];
+  queue: AudioPost[];
   onCollapse: () => void;
   onClose: () => void;
   onTogglePlay: () => void;
@@ -72,7 +67,8 @@ interface FullPlayerProps {
   onScrubEnd: (position: number) => void;
   onSkipBy: (seconds: number) => void;
   onCycleSpeed: () => void;
-  onToggleLike: () => void;
+  /** Omitted for listeners without an account: the heart then shows the count only. */
+  onToggleLike?: () => void;
   onSelectQueueItem: (postId: string) => void;
   onRetry: () => void;
 }
@@ -253,14 +249,6 @@ export function FullPlayer({
             {post.description}
           </Typography>
 
-          <View className="mt-4 flex-row flex-wrap gap-2">
-            {post.tags.map((tag) => (
-              <View key={tag} className="bg-surface-secondary rounded-full px-3 py-1">
-                <Typography type="body-xs">#{tag}</Typography>
-              </View>
-            ))}
-          </View>
-
           {error ? (
             <Surface className="border-danger mt-5 flex-row items-center gap-3 rounded-2xl border p-3.5">
               <TriangleAlert color={PALETTE.danger} size={20} />
@@ -368,30 +356,39 @@ export function FullPlayer({
           </View>
 
           <View className="mt-7 flex-row items-center gap-6">
-            <Pressable
-              onPress={onToggleLike}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={post.isLiked ? 'Remove like' : 'Like this audio'}
-              className="flex-row items-center gap-2"
-            >
-              <Heart
-                color={post.isLiked ? PALETTE.danger : PALETTE.foreground}
-                fill={post.isLiked ? PALETTE.danger : 'transparent'}
-                size={20}
-              />
-              <Typography
-                type="body-sm"
-                className={post.isLiked ? 'text-danger' : 'text-foreground'}
+            {onToggleLike ? (
+              <Pressable
+                onPress={onToggleLike}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={post.isLiked ? 'Remove like' : 'Like this audio'}
+                className="flex-row items-center gap-2"
               >
-                {formatCount(post.likes)}
-              </Typography>
-            </Pressable>
+                <Heart
+                  color={post.isLiked ? PALETTE.danger : PALETTE.foreground}
+                  fill={post.isLiked ? PALETTE.danger : 'transparent'}
+                  size={20}
+                />
+                <Typography
+                  type="body-sm"
+                  className={post.isLiked ? 'text-danger' : 'text-foreground'}
+                >
+                  {formatCount(post.likes)}
+                </Typography>
+              </Pressable>
+            ) : (
+              <View className="flex-row items-center gap-2">
+                <Heart color={PALETTE.muted} size={20} />
+                <Typography type="body-sm" color="muted">
+                  {formatCount(post.likes)}
+                </Typography>
+              </View>
+            )}
 
             <View className="flex-row items-center gap-2">
-              <MessageCircle color={PALETTE.muted} size={20} />
+              <Headphones color={PALETTE.muted} size={20} />
               <Typography type="body-sm" color="muted">
-                {formatCount(post.comments)}
+                {formatCount(post.plays)}
               </Typography>
             </View>
 
@@ -419,10 +416,10 @@ export function FullPlayer({
               <View className="mt-3 gap-2">
                 {queue.map((item) => (
                   <PressableFeedback
-                    key={item.post.id}
-                    onPress={() => onSelectQueueItem(item.post.id)}
+                    key={item.id}
+                    onPress={() => onSelectQueueItem(item.id)}
                     accessibilityRole="button"
-                    accessibilityLabel={`Play ${item.post.title}`}
+                    accessibilityLabel={`Play ${item.title}`}
                     className="bg-surface border-border flex-row items-center gap-3 rounded-2xl border p-2.5"
                   >
                     <CoverArt gradient={item.creator.gradient} size={44} radius={14}>
@@ -430,11 +427,10 @@ export function FullPlayer({
                     </CoverArt>
                     <View className="flex-1">
                       <Typography type="body-sm" weight="medium" numberOfLines={1}>
-                        {item.post.title}
+                        {item.title}
                       </Typography>
                       <Typography type="body-xs" color="muted">
-                        {item.creator.name} · {item.post.category} ·{' '}
-                        {formatDuration(item.post.durationSec)}
+                        {item.creator.name} · {item.category} · {formatDuration(item.durationSec)}
                       </Typography>
                     </View>
                   </PressableFeedback>
@@ -444,8 +440,7 @@ export function FullPlayer({
           ) : null}
 
           <Typography type="body-xs" color="muted" align="center" className="mt-7">
-            Placeholder audio files stand in for real uploads. Playback keeps running when the app
-            is in the background or the screen is locked.
+            Playback keeps running when the app is in the background or the screen is locked.
           </Typography>
         </ScrollView>
       </Animated.View>

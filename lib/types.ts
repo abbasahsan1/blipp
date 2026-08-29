@@ -1,4 +1,5 @@
 export interface Creator {
+  /** Auth user id of the account that owns this profile. */
   id: string;
   name: string;
   handle: string;
@@ -8,29 +9,11 @@ export interface Creator {
   /** Uploaded profile photo. Falls back to the gradient initials when absent. */
   avatarUrl?: string | null;
   bio: string;
-  followers: number;
-  isVerified: boolean;
 }
 
-/** Content type shown as a chip on every post. */
-export const POST_CATEGORIES = [
-  'Podcast',
-  'Interview',
-  'Tech Review',
-  'Story',
-  'Skit',
-  'Discussion',
-  'Coaching',
-  'Ambient',
-  'Journal',
-  'Other',
-] as const;
-
-export type PostCategory = (typeof POST_CATEGORIES)[number];
-
 /**
- * The fixed list offered when publishing from the Upload tab. Narrower than
- * POST_CATEGORIES, which also covers categories only seeded posts use.
+ * The fixed list offered when publishing from the Upload tab, and therefore the
+ * only categories posts can carry.
  */
 export const UPLOAD_CATEGORIES = [
   'Interview',
@@ -39,7 +22,7 @@ export const UPLOAD_CATEGORIES = [
   'Skit',
   'Discussion',
   'Other',
-] as const satisfies readonly PostCategory[];
+] as const;
 
 export type UploadCategory = (typeof UPLOAD_CATEGORIES)[number];
 
@@ -47,19 +30,22 @@ export interface AudioPost {
   id: string;
   title: string;
   description: string;
+  /** Profile of the account that published it. */
+  creator: Creator;
+  /** Auth user id of the owner, used for ownership checks. */
   creatorId: string;
-  category: PostCategory;
-  /** Remote audio file played by the audio engine. */
+  category: string;
+  /** Public URL of the stored audio file. */
   audioUrl: string;
+  /** Object path inside the audio bucket, needed to delete the file. */
+  audioPath: string;
   /**
-   * Duration in seconds. Seeded from mock data and corrected to the real file
-   * length the first time the post is loaded by the player.
+   * Duration in seconds as measured when the file was picked, corrected to the
+   * real file length the first time the player loads it.
    */
   durationSec: number;
   plays: number;
   likes: number;
-  comments: number;
-  tags: string[];
   /** Epoch milliseconds. */
   createdAt: number;
   /** Normalized bar heights (0..1) used to draw the waveform. */
@@ -67,20 +53,10 @@ export interface AudioPost {
   isLiked: boolean;
 }
 
-export type FeedCategory = 'for-you' | 'trending' | 'fresh';
+/** Ordering offered by the feed's header chips. */
+export type FeedSort = 'newest' | 'trending';
 
 export interface Account extends Creator {
   email: string;
   memberSince: string;
-}
-
-export interface NewPostInput {
-  title: string;
-  description: string;
-  category: PostCategory;
-  durationSec: number;
-  /** Source of the uploaded file. Falls back to a placeholder clip when absent. */
-  audioUrl?: string;
-  tags?: string[];
-  waveform?: number[];
 }

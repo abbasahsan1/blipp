@@ -1,11 +1,14 @@
 import * as DocumentPicker from 'expo-document-picker';
 
 import { estimateDurationFromSize, probeAudioDuration } from '@/lib/audio/probeDuration';
-import type { PickedAudioFile } from '@/lib/store/uploadStore';
+import type { PickedAudioFile } from '@/lib/upload/audioFile';
 
 /**
  * Opens the device file picker filtered to audio. Resolves to null when the
  * user dismisses it; throws only if the picker itself cannot be opened.
+ *
+ * The filter stays broad on purpose: a file the app cannot publish is rejected
+ * with a clear reason right after selection, rather than hidden by the picker.
  */
 export async function pickAudioFile(): Promise<PickedAudioFile | null> {
   const result = await DocumentPicker.getDocumentAsync({

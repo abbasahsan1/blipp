@@ -3,7 +3,8 @@ import { View } from 'react-native';
 import { Button, Spinner, Surface, Typography } from 'heroui-native';
 
 import { formatDuration, formatFileSize } from '@/lib/format';
-import { MAX_FILE_BYTES, type PickedAudioFile } from '@/lib/store/uploadStore';
+import { ALLOWED_AUDIO_LABEL, MAX_FILE_BYTES } from '@/lib/upload/audioFile';
+import type { PickedAudioFile } from '@/lib/upload/audioFile';
 import { PALETTE } from '@/lib/palette';
 
 interface FilePickerCardProps {
@@ -34,7 +35,7 @@ export function FilePickerCard({
           Choose an audio file
         </Typography>
         <Typography type="body-sm" color="muted" align="center" className="mt-1">
-          MP3, M4A, AAC, WAV, OGG or FLAC, up to {formatFileSize(MAX_FILE_BYTES)}.
+          {ALLOWED_AUDIO_LABEL}, up to {formatFileSize(MAX_FILE_BYTES)}.
         </Typography>
         <Button size="md" className="mt-5" isDisabled={isPicking} onPress={onPick}>
           <Button.Label>

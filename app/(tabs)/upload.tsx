@@ -9,8 +9,6 @@ import {
   Input,
   Label,
   Spinner,
-  Surface,
-  Switch,
   TextArea,
   TextField,
   Typography,
@@ -29,6 +27,7 @@ import { useSessionStore } from '@/lib/store/sessionStore';
 import {
   canPublishDraft,
   DESCRIPTION_MAX_LENGTH,
+  phaseLabel,
   TITLE_MAX_LENGTH,
   useUploadStore,
 } from '@/lib/store/uploadStore';
@@ -50,10 +49,10 @@ export default function UploadScreen() {
   const description = useUploadStore((state) => state.description);
   const category = useUploadStore((state) => state.category);
   const status = useUploadStore((state) => state.status);
+  const phase = useUploadStore((state) => state.phase);
   const progress = useUploadStore((state) => state.progress);
   const error = useUploadStore((state) => state.error);
   const errorKind = useUploadStore((state) => state.errorKind);
-  const simulateFailure = useUploadStore((state) => state.simulateFailure);
   const publishedTitle = useUploadStore((state) => state.publishedTitle);
   const pendingLeave = useUploadStore((state) => state.pendingLeave);
 
@@ -62,7 +61,6 @@ export default function UploadScreen() {
   const setTitle = useUploadStore((state) => state.setTitle);
   const setDescription = useUploadStore((state) => state.setDescription);
   const setCategory = useUploadStore((state) => state.setCategory);
-  const setSimulateFailure = useUploadStore((state) => state.setSimulateFailure);
   const reportPickError = useUploadStore((state) => state.reportPickError);
   const startUpload = useUploadStore((state) => state.startUpload);
   const cancelUpload = useUploadStore((state) => state.cancelUpload);
@@ -177,6 +175,7 @@ export default function UploadScreen() {
         {isUploading ? (
           <UploadProgressCard
             progress={progress}
+            label={phaseLabel(phase)}
             fileName={file?.name ?? 'Your file'}
             onCancel={cancelUpload}
           />
@@ -186,7 +185,7 @@ export default function UploadScreen() {
           <UploadErrorBanner
             message={error}
             actionLabel={errorKind === 'transfer' ? 'Retry upload' : 'Choose another file'}
-            onAction={errorKind === 'transfer' ? startUpload : () => void handlePick()}
+            onAction={errorKind === 'transfer' ? () => void startUpload() : () => void handlePick()}
           />
         ) : null}
 
@@ -267,24 +266,8 @@ export default function UploadScreen() {
             </View>
           </View>
 
-          <Surface variant="secondary" className="flex-row items-center gap-3 rounded-2xl p-4">
-            <View className="flex-1">
-              <Typography type="body-sm" weight="medium">
-                Simulate a failed upload
-              </Typography>
-              <Typography type="body-xs" color="muted">
-                Demo switch: interrupts the next upload so you can see the error and retry.
-              </Typography>
-            </View>
-            <Switch
-              isSelected={simulateFailure}
-              onSelectedChange={setSimulateFailure}
-              isDisabled={isUploading}
-            />
-          </Surface>
-
           <View>
-            <Button size="lg" isDisabled={!canPost} onPress={startUpload}>
+            <Button size="lg" isDisabled={!canPost} onPress={() => void startUpload()}>
               <Button.Label>
                 <View className="flex-row items-center gap-2">
                   {isUploading ? (

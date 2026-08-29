@@ -1,4 +1,4 @@
-import { BadgeCheck, Headphones, Heart, MessageCircle, Pause, Play } from 'lucide-react-native';
+import { Headphones, Heart, Pause, Play, Trash2 } from 'lucide-react-native';
 import { memo } from 'react';
 import { Pressable, View } from 'react-native';
 import { PressableFeedback, Typography } from 'heroui-native';
@@ -18,6 +18,9 @@ interface AudioPostCardProps {
   progress: number;
   onPress: () => void;
   onToggleLike: () => void;
+  /** Shown only where the viewer owns the post. */
+  onDelete?: () => void;
+  isDeleting?: boolean;
 }
 
 function AudioPostCardComponent({
@@ -28,6 +31,8 @@ function AudioPostCardComponent({
   progress,
   onPress,
   onToggleLike,
+  onDelete,
+  isDeleting,
 }: AudioPostCardProps) {
   return (
     <PressableFeedback
@@ -35,6 +40,7 @@ function AudioPostCardComponent({
       accessibilityRole="button"
       accessibilityLabel={`Play ${post.title} by ${creator.name}`}
       className={`bg-surface rounded-3xl border p-3.5 ${isCurrent ? 'border-accent' : 'border-border'}`}
+      style={{ opacity: isDeleting ? 0.5 : 1 }}
     >
       <View className="flex-row gap-3.5">
         <CoverArt gradient={creator.gradient} size={76} radius={20}>
@@ -56,7 +62,6 @@ function AudioPostCardComponent({
             <Typography type="body-xs" weight="medium" numberOfLines={1} className="max-w-[60%]">
               {creator.name}
             </Typography>
-            {creator.isVerified ? <BadgeCheck color={PALETTE.accent} size={13} /> : null}
             <Typography type="body-xs" color="muted">
               · {formatRelativeTime(post.createdAt)}
             </Typography>
@@ -109,22 +114,22 @@ function AudioPostCardComponent({
           </Typography>
         </Pressable>
 
-        <View className="flex-row items-center gap-1.5">
-          <MessageCircle color={PALETTE.muted} size={14} />
-          <Typography type="body-xs" color="muted">
-            {formatCount(post.comments)}
-          </Typography>
-        </View>
-
-        <View className="flex-1 flex-row justify-end gap-1.5">
+        <View className="flex-1 flex-row items-center justify-end gap-2">
           <View className="bg-surface-tertiary rounded-full px-2 py-0.5">
             <Typography type="body-xs">{post.category}</Typography>
           </View>
-          {post.tags.slice(0, 1).map((tag) => (
-            <View key={tag} className="bg-surface-secondary rounded-full px-2 py-0.5">
-              <Typography type="body-xs">#{tag}</Typography>
-            </View>
-          ))}
+          {onDelete ? (
+            <Pressable
+              onPress={onDelete}
+              disabled={isDeleting}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={`Delete ${post.title}`}
+              className="bg-surface-secondary h-8 w-8 items-center justify-center rounded-full"
+            >
+              <Trash2 color={PALETTE.danger} size={15} />
+            </Pressable>
+          ) : null}
         </View>
       </View>
     </PressableFeedback>

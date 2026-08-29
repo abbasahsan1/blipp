@@ -1,5 +1,4 @@
-import { MY_CREATOR_ID } from '@/lib/mockData';
-import type { Account } from '@/lib/types';
+import type { Account, Creator } from '@/lib/types';
 
 /** Row shape of the `profiles` table. */
 export interface ProfileRow {
@@ -79,23 +78,26 @@ export function formatMemberSince(iso: string): string {
   return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
-/**
- * Maps a profile row onto the account shape the UI already speaks. The id stays
- * the local creator id so posts published from this device keep resolving to
- * the signed-in user.
- */
-export function toAccount(row: ProfileRow, email: string | null): Account {
+/** Maps a profile row onto the creator shown on that account's posts. */
+export function toCreator(row: ProfileRow): Creator {
   const name = row.display_name.trim();
   return {
-    id: MY_CREATOR_ID,
+    id: row.id,
     name,
-    handle: row.handle ?? handleFrom(name, email ?? ''),
-    initials: initialsFrom(name, email),
+    handle: row.handle ?? handleFrom(name, ''),
+    initials: initialsFrom(name),
     gradient: gradientForSeed(row.id),
     avatarUrl: row.avatar_url,
     bio: row.bio ?? '',
-    followers: 0,
-    isVerified: false,
+  };
+}
+
+/** The signed-in user's own profile, with the account details only they see. */
+export function toAccount(row: ProfileRow, email: string | null): Account {
+  const creator = toCreator(row);
+  return {
+    ...creator,
+    initials: initialsFrom(creator.name, email),
     email: email ?? '',
     memberSince: formatMemberSince(row.created_at),
   };

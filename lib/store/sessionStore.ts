@@ -6,6 +6,7 @@ import { type AuthFailure, describeAuthError, isEmailNotConfirmed } from '@/lib/
 import { startGoogleSignIn } from '@/lib/auth/google';
 import { AvatarError, type PickedAvatar, uploadAvatar } from '@/lib/profile/avatar';
 import { handleFrom, suggestedNameFrom, toAccount } from '@/lib/profile/identity';
+import { useFeedStore } from '@/lib/store/feedStore';
 import type { Account } from '@/lib/types';
 
 export const DISPLAY_NAME_MAX_LENGTH = 40;
@@ -359,6 +360,8 @@ export const useSessionStore = create<SessionState>((set, get) => {
 
     signOut: async () => {
       await bilt.auth.signOut();
+      // Nothing tied to the previous account may stay on screen.
+      useFeedStore.getState().clearAccountState();
       set({
         status: 'signed-out',
         userId: null,

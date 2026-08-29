@@ -1,9 +1,7 @@
 import {
-  BadgeCheck,
   ChevronUp,
   Headphones,
   Heart,
-  MessageCircle,
   Pause,
   Play,
   RotateCcw,
@@ -47,7 +45,8 @@ interface AudioReelProps {
   onTogglePlay: (postId: string) => void;
   onScrub: (position: number) => void;
   onScrubEnd: (position: number) => void;
-  onToggleLike: (postId: string) => void;
+  /** Omitted for listeners without an account: the heart then shows the count only. */
+  onToggleLike?: (postId: string) => void;
   onCycleSpeed: () => void;
   onRetry: () => void;
 }
@@ -179,7 +178,6 @@ function AudioReelComponent({
               >
                 {creator.name}
               </Typography>
-              {creator.isVerified ? <BadgeCheck color={PALETTE.accent} size={14} /> : null}
               <Typography type="body-xs" color="muted" numberOfLines={1} className="max-w-[35%]">
                 {creator.handle}
               </Typography>
@@ -200,44 +198,38 @@ function AudioReelComponent({
                 {formatDuration(total)} · {formatRelativeTime(post.createdAt)}
               </Typography>
             </View>
-
-            <View className="mt-2 flex-row flex-wrap gap-2">
-              {post.tags.map((tag) => (
-                <View key={tag} className="bg-surface-secondary/80 rounded-full px-2.5 py-0.5">
-                  <Typography type="body-xs">#{tag}</Typography>
-                </View>
-              ))}
-            </View>
           </View>
 
           <View className="w-14 items-center gap-4">
-            <Pressable
-              onPress={() => onToggleLike(post.id)}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel={post.isLiked ? 'Remove like' : 'Like this audio'}
-              className="items-center gap-1"
-            >
-              <View className="bg-surface/70 h-11 w-11 items-center justify-center rounded-full">
-                <Heart
-                  color={post.isLiked ? PALETTE.danger : PALETTE.foreground}
-                  fill={post.isLiked ? PALETTE.danger : 'transparent'}
-                  size={20}
-                />
+            {onToggleLike ? (
+              <Pressable
+                onPress={() => onToggleLike(post.id)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={post.isLiked ? 'Remove like' : 'Like this audio'}
+                className="items-center gap-1"
+              >
+                <View className="bg-surface/70 h-11 w-11 items-center justify-center rounded-full">
+                  <Heart
+                    color={post.isLiked ? PALETTE.danger : PALETTE.foreground}
+                    fill={post.isLiked ? PALETTE.danger : 'transparent'}
+                    size={20}
+                  />
+                </View>
+                <Typography type="body-xs" color="muted">
+                  {formatCount(post.likes)}
+                </Typography>
+              </Pressable>
+            ) : (
+              <View className="items-center gap-1">
+                <View className="bg-surface/70 h-11 w-11 items-center justify-center rounded-full">
+                  <Heart color={PALETTE.muted} size={20} />
+                </View>
+                <Typography type="body-xs" color="muted">
+                  {formatCount(post.likes)}
+                </Typography>
               </View>
-              <Typography type="body-xs" color="muted">
-                {formatCount(post.likes)}
-              </Typography>
-            </Pressable>
-
-            <View className="items-center gap-1">
-              <View className="bg-surface/70 h-11 w-11 items-center justify-center rounded-full">
-                <MessageCircle color={PALETTE.foreground} size={20} />
-              </View>
-              <Typography type="body-xs" color="muted">
-                {formatCount(post.comments)}
-              </Typography>
-            </View>
+            )}
 
             <View className="items-center gap-1">
               <View className="bg-surface/70 h-11 w-11 items-center justify-center rounded-full">

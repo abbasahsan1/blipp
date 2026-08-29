@@ -1,14 +1,15 @@
+import { useMemo } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePathname } from 'expo-router';
 
-import { FullPlayer, type QueueEntry } from '@/components/audio/FullPlayer';
+import { FullPlayer } from '@/components/audio/FullPlayer';
 import { MiniPlayer } from '@/components/audio/MiniPlayer';
 import { useAudioEngine } from '@/hooks/useAudioEngine';
-import { creatorFor } from '@/lib/creators';
 import { MINI_PLAYER_GAP, TAB_BAR_HEIGHT } from '@/lib/layout';
-import { useFeedStore } from '@/lib/store/feedStore';
+import { selectPost, useFeedStore } from '@/lib/store/feedStore';
 import { queueBounds, usePlayerStore } from '@/lib/store/playerStore';
 import { useSessionStore } from '@/lib/store/sessionStore';
+import type { AudioPost } from '@/lib/types';
 
 /**
  * Owns the persistent player: the native audio engine, a mini player docked
@@ -20,9 +21,8 @@ export function PlayerHost() {
 
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
-  const posts = useFeedStore((state) => state.posts);
   const toggleLike = useFeedStore((state) => state.toggleLike);
-  const account = useSessionStore((state) => state.account);
+  const viewerId = useSessionStore((state) => state.userId);
 
   const currentId = usePlayerStore((state) => state.currentId);
   const queueIds = usePlayerStore((state) => state.queueIds);
@@ -46,30 +46,35 @@ export function PlayerHost() {
   const cycleSpeed = usePlayerStore((state) => state.cycleSpeed);
   const retry = usePlayerStore((state) => state.retry);
 
-  const post = currentId ? posts.find((item) => item.id === currentId) : undefined;
-  if (!post) return null;
+  const posts = useFeedStore((state) => state.posts);
+  const myPosts = useFeedStore((state) => state.myPosts);
 
-  const creator = creatorFor(post.creatorId, account);
-  if (!creator) return null;
+  const post = useMemo(
+    () => selectPost({ posts, myPosts }, currentId),
+    [posts, myPosts, currentId],
+  );
+  const upNext = useMemo<AudioPost[]>(() => {
+    const index = currentId ? queueIds.indexOf(currentId) : -1;
+    if (index < 0) return [];
+    return queueIds.slice(index + 1, index + 4).flatMap((id) => {
+      const queued = selectPost({ posts, myPosts }, id);
+      return queued ? [queued] : [];
+    });
+  }, [posts, myPosts, queueIds, currentId]);
+
+  if (!post) return null;
 
   const total = duration > 0 ? duration : post.durationSec;
   const progress = total > 0 ? Math.min(1, position / total) : 0;
-  const { index: currentIndex, hasNext, hasPrevious } = queueBounds(queueIds, post.id);
-
-  const upNext: QueueEntry[] = queueIds
-    .slice(currentIndex + 1, currentIndex + 4)
-    .map((id) => {
-      const queuedPost = posts.find((item) => item.id === id);
-      const queuedCreator = queuedPost ? creatorFor(queuedPost.creatorId, account) : undefined;
-      return queuedPost && queuedCreator ? { post: queuedPost, creator: queuedCreator } : null;
-    })
-    .filter((entry): entry is QueueEntry => entry !== null);
+  const { hasNext, hasPrevious } = queueBounds(queueIds, post.id);
+  // Liking is stored per account, so a guest listener sees the count only.
+  const handleToggleLike = viewerId ? () => void toggleLike(post.id, viewerId) : undefined;
 
   if (isExpanded) {
     return (
       <FullPlayer
         post={post}
-        creator={creator}
+        creator={post.creator}
         isPlaying={isPlaying}
         isBuffering={isBuffering}
         error={error}
@@ -88,7 +93,7 @@ export function PlayerHost() {
         onScrubEnd={endScrub}
         onSkipBy={skipBy}
         onCycleSpeed={cycleSpeed}
-        onToggleLike={() => toggleLike(post.id)}
+        onToggleLike={handleToggleLike}
         onSelectQueueItem={(postId) => playPost(postId)}
         onRetry={retry}
       />
@@ -101,7 +106,7 @@ export function PlayerHost() {
   return (
     <MiniPlayer
       post={post}
-      creator={creator}
+      creator={post.creator}
       isPlaying={isPlaying}
       isBuffering={isBuffering}
       error={error}

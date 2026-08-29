@@ -52,6 +52,12 @@ Uniwind.setTheme('dark');
 
 void SplashScreen.preventAutoHideAsync();
 
+/** Restores any stored session, then loads the feed for whoever that turns out to be. */
+async function bootstrapData(): Promise<void> {
+  await useSessionStore.getState().initialize();
+  await useFeedStore.getState().loadFeed(useSessionStore.getState().userId);
+}
+
 export default function RootLayout() {
   const [loaded, error] = useFonts({
     Inter_400Regular,
@@ -61,16 +67,15 @@ export default function RootLayout() {
   });
   const [isBootstrapped, setIsBootstrapped] = useState(false);
 
-  // Load the first batch of (mock) feed data and restore any stored session
-  // behind the launch screen.
+  // Restore any stored session first, then load the feed behind the launch
+  // screen: the viewer's own likes come back marked only once we know who they are.
   useEffect(() => {
     let isCancelled = false;
     const MIN_SPLASH_MS = 1_300;
 
     const bootstrap = async () => {
       await Promise.all([
-        useFeedStore.getState().loadFeed(),
-        useSessionStore.getState().initialize(),
+        bootstrapData(),
         new Promise<void>((resolve) => setTimeout(resolve, MIN_SPLASH_MS)),
       ]);
       if (!isCancelled) setIsBootstrapped(true);

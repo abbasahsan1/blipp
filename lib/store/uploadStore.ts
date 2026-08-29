@@ -2,69 +2,47 @@ import { Platform } from 'react-native';
 import type { Href } from 'expo-router';
 import { create } from 'zustand';
 
-import { formatFileSize } from '@/lib/format';
-import { sortPostsForCategory, useFeedStore } from '@/lib/store/feedStore';
+import { insertPost } from '@/lib/posts';
+import { sortPosts, useFeedStore } from '@/lib/store/feedStore';
 import { usePlayerStore } from '@/lib/store/playerStore';
+import { useSessionStore } from '@/lib/store/sessionStore';
+import { checkAudioFile, type PickedAudioFile, type ValidAudioFile } from '@/lib/upload/audioFile';
+import {
+  AudioUploadError,
+  readAudioBody,
+  removeAudioFile,
+  uploadAudioBody,
+  type UploadFailureKind,
+} from '@/lib/upload/audioUpload';
 import type { UploadCategory } from '@/lib/types';
 
 export const TITLE_MAX_LENGTH = 100;
 export const DESCRIPTION_MAX_LENGTH = 300;
-export const MAX_FILE_BYTES = 25 * 1024 * 1024;
-
-/** Container formats the player can open. */
-const ALLOWED_EXTENSIONS = [
-  'mp3',
-  'm4a',
-  'mp4',
-  'aac',
-  'wav',
-  'wave',
-  'ogg',
-  'oga',
-  'opus',
-  'flac',
-  'aiff',
-  'aif',
-  'caf',
-  'weba',
-  'webm',
-];
-
-const UPLOAD_TICK_MS = 140;
-const UPLOAD_STEP = 0.055;
-/** Where a simulated failure interrupts the transfer. */
-const FAILURE_PROGRESS = 0.62;
-
-const NETWORK_ERROR = 'Upload failed: the connection dropped part way through. Your draft is safe.';
-
-export interface PickedAudioFile {
-  name: string;
-  /** Local file or object URL the player can open. */
-  uri: string;
-  /** Size in bytes, 0 when the platform does not report one. */
-  size: number;
-  mimeType?: string;
-  durationSec: number;
-  /** True when the length came from the file size rather than its metadata. */
-  isDurationEstimated: boolean;
-}
 
 export type UploadStatus = 'idle' | 'uploading' | 'error' | 'success';
 /** Which part failed, so the UI offers the right recovery action. */
-export type UploadErrorKind = 'file' | 'transfer' | null;
+export type UploadErrorKind = UploadFailureKind | null;
+/** Stage of a publish in flight, shown on the progress card. */
+export type UploadPhase = 'preparing' | 'uploading' | 'saving';
+
+const NOT_SIGNED_IN = 'Sign in again to publish this clip.';
+const GENERIC_FAILURE = 'Publishing did not finish. Your draft is safe — try again.';
+
+/** Progress the transfer ramp approaches while waiting on the server. */
+const RAMP_CEILING = 0.9;
+const RAMP_TICK_MS = 200;
 
 interface UploadState {
-  file: PickedAudioFile | null;
+  file: ValidAudioFile | null;
   title: string;
   description: string;
   category: UploadCategory;
   status: UploadStatus;
+  phase: UploadPhase;
   /** Transfer progress, 0..1. */
   progress: number;
   error: string | null;
   errorKind: UploadErrorKind;
-  /** Demo switch: makes the next transfer fail so the error path is reachable. */
-  simulateFailure: boolean;
   /** Title of the post that was just published, shown in the confirmation. */
   publishedTitle: string | null;
   publishedPostId: string | null;
@@ -73,15 +51,15 @@ interface UploadState {
   /** Route the user tried to leave for, waiting on the discard dialog. */
   pendingLeave: Href | null;
 
+  /** Validates the picked file and keeps it only if it can actually be published. */
   setFile: (file: PickedAudioFile) => void;
   clearFile: () => void;
   setTitle: (title: string) => void;
   setDescription: (description: string) => void;
   setCategory: (category: UploadCategory) => void;
-  setSimulateFailure: (value: boolean) => void;
   /** Surfaces a picker failure inline instead of throwing. */
   reportPickError: (message: string) => void;
-  startUpload: () => void;
+  startUpload: () => Promise<void>;
   cancelUpload: () => void;
   reset: () => void;
   setFocused: (value: boolean) => void;
@@ -92,33 +70,14 @@ interface UploadState {
   cancelLeave: () => void;
 }
 
-let uploadTimer: ReturnType<typeof setInterval> | null = null;
+/** Identifies the publish attempt in flight; bumping it abandons the previous one. */
+let activeToken = 0;
+let rampTimer: ReturnType<typeof setInterval> | null = null;
 
-function stopTimer(): void {
-  if (uploadTimer === null) return;
-  clearInterval(uploadTimer);
-  uploadTimer = null;
-}
-
-function fileExtension(name: string): string {
-  const parts = name.toLowerCase().split('.');
-  return parts.length > 1 ? parts[parts.length - 1] : '';
-}
-
-/** Human-readable reason the file cannot be uploaded, or null when it is fine. */
-export function validateAudioFile(file: PickedAudioFile): string | null {
-  const isAudioMime = file.mimeType?.startsWith('audio/') ?? false;
-  const hasAudioExtension = ALLOWED_EXTENSIONS.includes(fileExtension(file.name));
-
-  if (!isAudioMime && !hasAudioExtension) {
-    return `“${file.name}” is not a supported audio format. Pick an MP3, M4A, AAC, WAV, OGG or FLAC file.`;
-  }
-
-  if (file.size > MAX_FILE_BYTES) {
-    return `“${file.name}” is ${formatFileSize(file.size)}. Uploads are limited to ${formatFileSize(MAX_FILE_BYTES)}.`;
-  }
-
-  return null;
+function stopRamp(): void {
+  if (rampTimer === null) return;
+  clearInterval(rampTimer);
+  rampTimer = null;
 }
 
 const EMPTY_DRAFT = {
@@ -127,6 +86,7 @@ const EMPTY_DRAFT = {
   description: '',
   category: 'Interview' as UploadCategory,
   status: 'idle' as UploadStatus,
+  phase: 'preparing' as UploadPhase,
   progress: 0,
   error: null,
   errorKind: null,
@@ -135,50 +95,46 @@ const EMPTY_DRAFT = {
   pendingLeave: null,
 };
 
+/** Queues the new post so the player is ready when the feed opens. */
+function queuePublished(postId: string): void {
+  const feed = useFeedStore.getState();
+  const queueIds = sortPosts(feed.posts, feed.sort).map((item) => item.id);
+  // Browsers block audio that starts without a user gesture, so web queues it paused.
+  usePlayerStore
+    .getState()
+    .playPost(postId, queueIds, { autoplay: Platform.OS !== 'web', expand: false });
+}
+
 export const useUploadStore = create<UploadState>((set, get) => {
-  /** Adds the finished upload to the feed and queues it in the player. */
-  const publish = (): void => {
-    const { file, title, description, category } = get();
-    if (!file) return;
-
-    const post = useFeedStore.getState().addPost({
-      title,
-      description,
-      category,
-      durationSec: file.durationSec,
-      audioUrl: file.uri,
-    });
-
-    const feed = useFeedStore.getState();
-    const queueIds = sortPostsForCategory(feed.posts, feed.category).map((item) => item.id);
-    // Browsers block audio that starts without a user gesture, so web queues it paused.
-    usePlayerStore
-      .getState()
-      .playPost(post.id, queueIds, { autoplay: Platform.OS !== 'web', expand: false });
-
-    set({
-      status: 'success',
-      progress: 1,
-      error: null,
-      errorKind: null,
-      publishedTitle: post.title,
-      publishedPostId: post.id,
-    });
+  /**
+   * Byte progress is not reported by the storage client, so the bar eases
+   * towards a ceiling while the transfer runs and only completes once the
+   * server has confirmed both the file and the post row.
+   */
+  const startRamp = (): void => {
+    stopRamp();
+    rampTimer = setInterval(() => {
+      const state = get();
+      if (state.status !== 'uploading' || state.phase !== 'uploading') {
+        stopRamp();
+        return;
+      }
+      set({ progress: state.progress + (RAMP_CEILING - state.progress) * 0.07 });
+    }, RAMP_TICK_MS);
   };
 
   return {
     ...EMPTY_DRAFT,
-    simulateFailure: false,
     isFocused: false,
 
     setFile: (file) => {
-      const invalid = validateAudioFile(file);
-      if (invalid) {
+      const checked = checkAudioFile(file);
+      if (!checked.ok) {
         // Keep the typed fields: only the rejected file is dropped.
-        set({ error: invalid, errorKind: 'file', status: 'error', progress: 0 });
+        set({ error: checked.message, errorKind: 'file', status: 'error', progress: 0 });
         return;
       }
-      set({ file, error: null, errorKind: null, status: 'idle', progress: 0 });
+      set({ file: checked.file, error: null, errorKind: null, status: 'idle', progress: 0 });
     },
 
     clearFile: () => {
@@ -190,66 +146,106 @@ export const useUploadStore = create<UploadState>((set, get) => {
     setDescription: (description) =>
       set({ description: description.slice(0, DESCRIPTION_MAX_LENGTH) }),
     setCategory: (category) => set({ category }),
-    setSimulateFailure: (value) => set({ simulateFailure: value }),
 
     reportPickError: (message) => set({ error: message, errorKind: 'file', status: 'error' }),
 
-    startUpload: () => {
+    startUpload: async () => {
       const state = get();
       if (state.status === 'uploading') return;
 
       const file = state.file;
-      if (!file || state.title.trim().length === 0) return;
+      const title = state.title.trim();
+      if (!file || title.length === 0) return;
 
-      const invalid = validateAudioFile(file);
-      if (invalid) {
-        set({ error: invalid, errorKind: 'file', status: 'error', progress: 0 });
+      const session = useSessionStore.getState();
+      const userId = session.userId;
+      const account = session.account;
+      if (!userId || !account) {
+        set({ status: 'error', errorKind: 'transfer', error: NOT_SIGNED_IN, progress: 0 });
         return;
       }
 
-      stopTimer();
-      set({ status: 'uploading', progress: 0, error: null, errorKind: null });
+      activeToken += 1;
+      const token = activeToken;
+      const isStale = () => token !== activeToken;
 
-      // Stands in for the real transfer until a backend is connected.
-      uploadTimer = setInterval(() => {
-        const current = get();
-        if (current.status !== 'uploading') {
-          stopTimer();
+      set({
+        status: 'uploading',
+        phase: 'preparing',
+        progress: 0.04,
+        error: null,
+        errorKind: null,
+      });
+
+      let uploadedPath: string | null = null;
+
+      try {
+        const { body } = await readAudioBody(file);
+        if (isStale()) return;
+
+        set({ phase: 'uploading' });
+        startRamp();
+        uploadedPath = await uploadAudioBody({ userId, file, body });
+        stopRamp();
+
+        if (isStale()) {
+          void removeAudioFile(uploadedPath);
           return;
         }
 
-        const next = current.progress + UPLOAD_STEP;
+        set({ phase: 'saving', progress: 0.95 });
 
-        if (current.simulateFailure && next >= FAILURE_PROGRESS) {
-          stopTimer();
-          set({
-            status: 'error',
-            errorKind: 'transfer',
-            error: NETWORK_ERROR,
-            progress: FAILURE_PROGRESS,
-          });
-          return;
-        }
+        const post = await insertPost({
+          userId,
+          title,
+          description: get().description.trim(),
+          category: get().category,
+          durationSec: file.durationSec,
+          audioPath: uploadedPath,
+          creator: account,
+        });
 
-        if (next >= 1) {
-          stopTimer();
-          set({ progress: 1 });
-          publish();
-          return;
-        }
+        if (isStale()) return;
 
-        set({ progress: next });
-      }, UPLOAD_TICK_MS);
+        useFeedStore.getState().addPost(post);
+        queuePublished(post.id);
+
+        set({
+          status: 'success',
+          progress: 1,
+          error: null,
+          errorKind: null,
+          publishedTitle: post.title,
+          publishedPostId: post.id,
+        });
+      } catch (error) {
+        stopRamp();
+        // A file that made it to storage but never got a post row is dead weight.
+        if (uploadedPath) void removeAudioFile(uploadedPath);
+        if (isStale()) return;
+
+        const kind: UploadErrorKind = error instanceof AudioUploadError ? error.kind : 'transfer';
+        set({
+          status: 'error',
+          errorKind: kind,
+          error: error instanceof Error && error.message ? error.message : GENERIC_FAILURE,
+          progress: 0,
+        });
+      }
     },
 
     cancelUpload: () => {
-      stopTimer();
+      stopRamp();
       if (get().status !== 'uploading') return;
-      set({ status: 'idle', progress: 0, error: null, errorKind: null });
+      // The request in flight is abandoned: its result is discarded and any file
+      // that already landed in storage is removed.
+      activeToken += 1;
+      set({ status: 'idle', progress: 0, error: null, errorKind: null, phase: 'preparing' });
     },
 
     reset: () => {
-      stopTimer();
+      stopRamp();
+      activeToken += 1;
       set({ ...EMPTY_DRAFT });
     },
 
@@ -275,7 +271,7 @@ export const useUploadStore = create<UploadState>((set, get) => {
 
 /** Whether leaving the screen would throw away work. */
 export function isDraftDirty(state: {
-  file: PickedAudioFile | null;
+  file: ValidAudioFile | null;
   title: string;
   description: string;
   status: UploadStatus;
@@ -288,9 +284,16 @@ export function isDraftDirty(state: {
 
 /** Post is only allowed once a file and a title exist. */
 export function canPublishDraft(state: {
-  file: PickedAudioFile | null;
+  file: ValidAudioFile | null;
   title: string;
   status: UploadStatus;
 }): boolean {
   return state.file !== null && state.title.trim().length > 0 && state.status !== 'uploading';
+}
+
+/** What the progress card says about the stage a publish is at. */
+export function phaseLabel(phase: UploadPhase): string {
+  if (phase === 'preparing') return 'Preparing your file…';
+  if (phase === 'saving') return 'Saving your post…';
+  return 'Uploading audio…';
 }

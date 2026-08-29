@@ -8,11 +8,18 @@ import { AnimatedView } from '@/components/ui/primitives/AnimatedView';
 interface UploadProgressCardProps {
   /** 0..1 */
   progress: number;
+  /** What the upload is doing right now. */
+  label: string;
   fileName: string;
   onCancel: () => void;
 }
 
-export function UploadProgressCard({ progress, fileName, onCancel }: UploadProgressCardProps) {
+export function UploadProgressCard({
+  progress,
+  label,
+  fileName,
+  onCancel,
+}: UploadProgressCardProps) {
   const clamped = Math.min(1, Math.max(0, progress));
   const width = useSharedValue(clamped);
 
@@ -26,7 +33,7 @@ export function UploadProgressCard({ progress, fileName, onCancel }: UploadProgr
     <Surface variant="secondary" className="mt-4 rounded-2xl p-4">
       <View className="flex-row items-center justify-between">
         <Typography type="body-sm" weight="semibold">
-          Uploading…
+          {label}
         </Typography>
         <Typography type="body-sm" weight="semibold" className="text-accent">
           {Math.round(clamped * 100)}%

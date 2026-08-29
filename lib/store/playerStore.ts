@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 import { audioSeek } from '@/lib/audio/bridge';
-import { useFeedStore } from '@/lib/store/feedStore';
+import { selectPost, useFeedStore } from '@/lib/store/feedStore';
 
 export const PLAYBACK_SPEEDS = [1, 1.25, 1.5, 2] as const;
 export type PlaybackSpeed = (typeof PLAYBACK_SPEEDS)[number];
@@ -66,7 +66,7 @@ interface PlayerState {
 /** Duration a post reports before its file has loaded. */
 function reportedDuration(postId: string | null): number {
   if (!postId) return 0;
-  return useFeedStore.getState().posts.find((post) => post.id === postId)?.durationSec ?? 0;
+  return selectPost(useFeedStore.getState(), postId)?.durationSec ?? 0;
 }
 
 export const usePlayerStore = create<PlayerState>((set, get) => {
