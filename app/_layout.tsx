@@ -61,7 +61,8 @@ export default function RootLayout() {
   });
   const [isBootstrapped, setIsBootstrapped] = useState(false);
 
-  // Load the first batch of (mock) feed and profile data behind the launch screen.
+  // Load the first batch of (mock) feed data and restore any stored session
+  // behind the launch screen.
   useEffect(() => {
     let isCancelled = false;
     const MIN_SPLASH_MS = 1_300;
@@ -69,7 +70,7 @@ export default function RootLayout() {
     const bootstrap = async () => {
       await Promise.all([
         useFeedStore.getState().loadFeed(),
-        useSessionStore.getState().loadProfile(),
+        useSessionStore.getState().initialize(),
         new Promise<void>((resolve) => setTimeout(resolve, MIN_SPLASH_MS)),
       ]);
       if (!isCancelled) setIsBootstrapped(true);
@@ -174,6 +175,14 @@ export default function RootLayout() {
           }}
         >
           <Stack.Screen name="(tabs)" options={{ title: 'Blipp', headerShown: false }} />
+          <Stack.Screen
+            name="auth"
+            options={{
+              headerShown: false,
+              presentation: 'modal',
+              contentStyle: { backgroundColor: PALETTE.background },
+            }}
+          />
         </Stack>
         {isBootstrapped ? null : <LaunchScreen />}
         <InstallPrompt />

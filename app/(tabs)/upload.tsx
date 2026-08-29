@@ -16,6 +16,7 @@ import {
   Typography,
 } from 'heroui-native';
 
+import { SignInGate } from '@/components/auth/SignInGate';
 import { DiscardDraftDialog } from '@/components/upload/DiscardDraftDialog';
 import { FilePickerCard } from '@/components/upload/FilePickerCard';
 import { UploadErrorBanner } from '@/components/upload/UploadErrorBanner';
@@ -24,6 +25,7 @@ import { UploadSuccessOverlay } from '@/components/upload/UploadSuccessOverlay';
 import { MINI_PLAYER_INSET } from '@/lib/layout';
 import { PALETTE } from '@/lib/palette';
 import { usePlayerStore } from '@/lib/store/playerStore';
+import { useSessionStore } from '@/lib/store/sessionStore';
 import {
   canPublishDraft,
   DESCRIPTION_MAX_LENGTH,
@@ -40,6 +42,8 @@ const PICKER_ERROR = 'The file picker could not be opened. Try again in a moment
 export default function UploadScreen() {
   const insets = useSafeAreaInsets();
   const currentId = usePlayerStore((state) => state.currentId);
+
+  const sessionStatus = useSessionStore((state) => state.status);
 
   const file = useUploadStore((state) => state.file);
   const title = useUploadStore((state) => state.title);
@@ -118,6 +122,34 @@ export default function UploadScreen() {
     const target = confirmLeave();
     if (target) router.navigate(target);
   };
+
+  // Listening is open to everyone; publishing is not. An account-less visitor
+  // gets the sign-in prompt here instead of a form that cannot submit.
+  if (sessionStatus === 'loading') {
+    return (
+      <View className="bg-background flex-1 items-center justify-center gap-3">
+        <Spinner size="lg" />
+        <Typography type="body-sm" color="muted">
+          Checking your account…
+        </Typography>
+      </View>
+    );
+  }
+
+  if (sessionStatus !== 'signed-in') {
+    return (
+      <SignInGate
+        variant={sessionStatus === 'needs-profile' ? 'needs-profile' : 'signed-out'}
+        icon={<Upload color={PALETTE.muted} size={26} />}
+        title={sessionStatus === 'needs-profile' ? 'One step left' : 'Sign in to post your audio'}
+        message={
+          sessionStatus === 'needs-profile'
+            ? 'Pick a display name so listeners know whose audio they are hearing.'
+            : 'Anyone can listen to the feed. Publishing needs an account so your posts stay yours.'
+        }
+      />
+    );
+  }
 
   return (
     <KeyboardAvoidingView

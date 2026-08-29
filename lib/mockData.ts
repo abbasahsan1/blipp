@@ -1,4 +1,4 @@
-import type { Account, AudioPost, Creator, PostCategory } from '@/lib/types';
+import type { AudioPost, Creator, PostCategory } from '@/lib/types';
 
 /** Deterministic pseudo-random generator so waveforms stay stable across renders. */
 function seededRandom(seed: number): () => number {
@@ -128,13 +128,6 @@ export const CREATORS: Creator[] = [
 export const CREATORS_BY_ID: Record<string, Creator> = Object.fromEntries(
   CREATORS.map((creator) => [creator.id, creator]),
 );
-
-export const MY_ACCOUNT: Account = {
-  ...CREATORS[0],
-  email: 'ava.mercer@example.com',
-  memberSince: 'March 2024',
-  totalListens: 41_920,
-};
 
 interface PostSeed {
   id: string;

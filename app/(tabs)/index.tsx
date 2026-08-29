@@ -14,10 +14,11 @@ import { Chip, Typography } from 'heroui-native';
 
 import { AudioReel } from '@/components/audio/AudioReel';
 import { ReelSkeleton } from '@/components/audio/ReelSkeleton';
-import { CREATORS_BY_ID } from '@/lib/mockData';
+import { creatorFor } from '@/lib/creators';
 import { PALETTE } from '@/lib/palette';
 import { sortPostsForCategory, useFeedStore } from '@/lib/store/feedStore';
 import { usePlayerStore } from '@/lib/store/playerStore';
+import { useSessionStore } from '@/lib/store/sessionStore';
 import type { AudioPost, FeedCategory } from '@/lib/types';
 
 const CATEGORIES: { value: FeedCategory; label: string }[] = [
@@ -52,6 +53,8 @@ export default function FeedScreen() {
   const endScrub = usePlayerStore((state) => state.endScrub);
   const cycleSpeed = usePlayerStore((state) => state.cycleSpeed);
   const retry = usePlayerStore((state) => state.retry);
+
+  const account = useSessionStore((state) => state.account);
 
   const [pageHeight, setPageHeight] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -129,7 +132,7 @@ export default function FeedScreen() {
 
   const renderItem = useCallback(
     ({ item, index }: { item: AudioPost; index: number }) => {
-      const creator = CREATORS_BY_ID[item.creatorId];
+      const creator = creatorFor(item.creatorId, account);
       if (!creator) return null;
       const isActive = item.id === currentId;
       return (
@@ -157,6 +160,7 @@ export default function FeedScreen() {
       );
     },
     [
+      account,
       currentId,
       pageHeight,
       headerInset,

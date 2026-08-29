@@ -64,6 +64,15 @@ export default ({ config }: ConfigContext): ExpoConfig => {
           microphonePermission: false,
         },
       ],
+      [
+        'expo-image-picker',
+        {
+          photosPermission: 'Blipp uses your photos so you can set a profile picture.',
+          cameraPermission: false,
+        },
+      ],
+      // Google sign-in opens in an in-app browser session.
+      'expo-web-browser',
       ...nativePlugins,
     ],
     experiments: {

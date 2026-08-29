@@ -13,6 +13,7 @@ import { memo } from 'react';
 import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Button, Chip, Slider, Spinner, Typography } from 'heroui-native';
 
+import { Avatar } from '@/components/Avatar';
 import { CoverArt } from '@/components/audio/CoverArt';
 import { Waveform } from '@/components/audio/Waveform';
 import { LinearGradient } from '@/components/ui/primitives/LinearGradient';
@@ -163,11 +164,13 @@ function AudioReelComponent({
         <View className="flex-row items-end gap-3">
           <View className="flex-1">
             <View className="flex-row items-center gap-2">
-              <CoverArt gradient={creator.gradient} size={30} radius={15}>
-                <Typography type="body-xs" weight="bold" className="text-white">
-                  {creator.initials}
-                </Typography>
-              </CoverArt>
+              <Avatar
+                initials={creator.initials}
+                gradient={creator.gradient}
+                url={creator.avatarUrl}
+                size={30}
+                textType="body-xs"
+              />
               <Typography
                 type="body-sm"
                 weight="semibold"

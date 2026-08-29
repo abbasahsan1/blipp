@@ -4,10 +4,11 @@ import { usePathname } from 'expo-router';
 import { FullPlayer, type QueueEntry } from '@/components/audio/FullPlayer';
 import { MiniPlayer } from '@/components/audio/MiniPlayer';
 import { useAudioEngine } from '@/hooks/useAudioEngine';
+import { creatorFor } from '@/lib/creators';
 import { MINI_PLAYER_GAP, TAB_BAR_HEIGHT } from '@/lib/layout';
-import { CREATORS_BY_ID } from '@/lib/mockData';
 import { useFeedStore } from '@/lib/store/feedStore';
 import { queueBounds, usePlayerStore } from '@/lib/store/playerStore';
+import { useSessionStore } from '@/lib/store/sessionStore';
 
 /**
  * Owns the persistent player: the native audio engine, a mini player docked
@@ -21,6 +22,7 @@ export function PlayerHost() {
   const pathname = usePathname();
   const posts = useFeedStore((state) => state.posts);
   const toggleLike = useFeedStore((state) => state.toggleLike);
+  const account = useSessionStore((state) => state.account);
 
   const currentId = usePlayerStore((state) => state.currentId);
   const queueIds = usePlayerStore((state) => state.queueIds);
@@ -47,7 +49,7 @@ export function PlayerHost() {
   const post = currentId ? posts.find((item) => item.id === currentId) : undefined;
   if (!post) return null;
 
-  const creator = CREATORS_BY_ID[post.creatorId];
+  const creator = creatorFor(post.creatorId, account);
   if (!creator) return null;
 
   const total = duration > 0 ? duration : post.durationSec;
@@ -58,7 +60,7 @@ export function PlayerHost() {
     .slice(currentIndex + 1, currentIndex + 4)
     .map((id) => {
       const queuedPost = posts.find((item) => item.id === id);
-      const queuedCreator = queuedPost ? CREATORS_BY_ID[queuedPost.creatorId] : undefined;
+      const queuedCreator = queuedPost ? creatorFor(queuedPost.creatorId, account) : undefined;
       return queuedPost && queuedCreator ? { post: queuedPost, creator: queuedCreator } : null;
     })
     .filter((entry): entry is QueueEntry => entry !== null);

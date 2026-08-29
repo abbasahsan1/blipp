@@ -15,9 +15,10 @@ import {
   updateMediaSessionMetadata,
   type MediaSessionMetadata,
 } from '@/lib/audio/mediaSession';
-import { CREATORS_BY_ID } from '@/lib/mockData';
+import { creatorFor } from '@/lib/creators';
 import { useFeedStore } from '@/lib/store/feedStore';
 import { usePlayerStore } from '@/lib/store/playerStore';
+import { useSessionStore } from '@/lib/store/sessionStore';
 
 const STATUS_INTERVAL_MS = 250;
 /** How long a source may stay unloaded before it counts as a failure. */
@@ -52,6 +53,7 @@ export function useAudioEngine(): void {
   const title = post?.title;
   const creatorId = post?.creatorId;
   const category = post?.category;
+  const account = useSessionStore((state) => state.account);
 
   const speedRef = useRef(speed);
   speedRef.current = speed;
@@ -204,11 +206,11 @@ export function useAudioEngine(): void {
     if (!title) return null;
     return {
       title,
-      artist: (creatorId ? CREATORS_BY_ID[creatorId]?.name : undefined) ?? 'Blipp',
+      artist: (creatorId ? creatorFor(creatorId, account)?.name : undefined) ?? 'Blipp',
       albumTitle: category,
       artworkUrl,
     };
-  }, [title, creatorId, category, artworkUrl]);
+  }, [title, creatorId, category, artworkUrl, account]);
 
   /**
    * Hand the player to the media session on first play, like a music app: the

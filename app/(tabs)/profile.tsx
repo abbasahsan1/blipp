@@ -1,4 +1,4 @@
-import { BadgeCheck, Headphones, LogOut, Mail, Mic, CalendarDays } from 'lucide-react-native';
+import { BadgeCheck, CalendarDays, Headphones, LogOut, Mail, Mic } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,23 +7,23 @@ import { Button, Dialog, Separator, Spinner, Surface, Typography } from 'heroui-
 
 import { AudioPostCard } from '@/components/audio/AudioPostCard';
 import { AudioPostSkeleton } from '@/components/audio/AudioPostSkeleton';
-import { CoverArt } from '@/components/audio/CoverArt';
+import { Avatar } from '@/components/Avatar';
+import { SignInGate } from '@/components/auth/SignInGate';
+import { creatorFor } from '@/lib/creators';
 import { formatCount } from '@/lib/format';
 import { MINI_PLAYER_INSET } from '@/lib/layout';
-import { CREATORS_BY_ID, MY_CREATOR_ID } from '@/lib/mockData';
+import { MY_CREATOR_ID } from '@/lib/mockData';
 import { PALETTE } from '@/lib/palette';
 import { useFeedStore } from '@/lib/store/feedStore';
 import { usePlayerStore } from '@/lib/store/playerStore';
 import { useSessionStore } from '@/lib/store/sessionStore';
+import { useUploadStore } from '@/lib/store/uploadStore';
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
 
   const status = useSessionStore((state) => state.status);
   const account = useSessionStore((state) => state.account);
-  const isLoadingProfile = useSessionStore((state) => state.isLoadingProfile);
-  const isSigningIn = useSessionStore((state) => state.isSigningIn);
-  const signIn = useSessionStore((state) => state.signIn);
   const signOut = useSessionStore((state) => state.signOut);
 
   const posts = useFeedStore((state) => state.posts);
@@ -42,54 +42,11 @@ export default function ProfileScreen() {
   const myPosts = useMemo(() => posts.filter((post) => post.creatorId === MY_CREATOR_ID), [posts]);
   const myPostIds = useMemo(() => myPosts.map((post) => post.id), [myPosts]);
   const totalLikes = useMemo(() => myPosts.reduce((sum, post) => sum + post.likes, 0), [myPosts]);
+  const totalListens = useMemo(() => myPosts.reduce((sum, post) => sum + post.plays, 0), [myPosts]);
 
   const bottomPadding = (currentId ? MINI_PLAYER_INSET : 0) + insets.bottom + 24;
 
-  if (status === 'signed-out') {
-    return (
-      <View className="bg-background flex-1 items-center justify-center px-8">
-        <View className="bg-surface-secondary h-16 w-16 items-center justify-center rounded-full">
-          <Headphones color={PALETTE.muted} size={26} />
-        </View>
-        <Typography type="h4" align="center" className="mt-5">
-          You are signed out
-        </Typography>
-        <Typography type="body-sm" color="muted" align="center" className="mt-2">
-          Sign back in to see your posts, listening stats and account details.
-        </Typography>
-        <Button
-          size="lg"
-          className="mt-6 w-full"
-          isDisabled={isSigningIn}
-          onPress={() => void signIn()}
-        >
-          <Button.Label>
-            {isSigningIn ? (
-              <View className="flex-row items-center gap-2">
-                <Spinner size="sm" />
-                <Typography
-                  type="body"
-                  weight="semibold"
-                  style={{ color: PALETTE.accentForeground }}
-                >
-                  Signing in…
-                </Typography>
-              </View>
-            ) : (
-              <Typography type="body" weight="semibold" style={{ color: PALETTE.accentForeground }}>
-                Sign in
-              </Typography>
-            )}
-          </Button.Label>
-        </Button>
-        <Typography type="body-xs" color="muted" align="center" className="mt-4">
-          Accounts are mocked until a backend is connected.
-        </Typography>
-      </View>
-    );
-  }
-
-  if (isLoadingProfile || !account) {
+  if (status === 'loading') {
     return (
       <View className="bg-background flex-1 items-center justify-center gap-3">
         <Spinner size="lg" />
@@ -97,6 +54,28 @@ export default function ProfileScreen() {
           Loading your profile…
         </Typography>
       </View>
+    );
+  }
+
+  if (status === 'signed-out') {
+    return (
+      <SignInGate
+        variant="signed-out"
+        icon={<Headphones color={PALETTE.muted} size={26} />}
+        title="You are browsing as a guest"
+        message="Sign in to see your posts and account details. Listening works either way."
+      />
+    );
+  }
+
+  if (status === 'needs-profile' || !account) {
+    return (
+      <SignInGate
+        variant="needs-profile"
+        icon={<Headphones color={PALETTE.muted} size={26} />}
+        title="Finish setting up"
+        message="Add a display name and, if you like, a photo. Then your profile shows up here."
+      />
     );
   }
 
@@ -109,11 +88,13 @@ export default function ProfileScreen() {
       >
         <Surface className="mt-2 rounded-3xl p-5">
           <View className="flex-row items-center gap-4">
-            <CoverArt gradient={account.gradient} size={72} radius={36}>
-              <Typography type="h4" style={{ color: PALETTE.onCover }}>
-                {account.initials}
-              </Typography>
-            </CoverArt>
+            <Avatar
+              initials={account.initials}
+              gradient={account.gradient}
+              url={account.avatarUrl}
+              size={72}
+              textType="h4"
+            />
             <View className="flex-1">
               <View className="flex-row items-center gap-1.5">
                 <Typography type="h5" numberOfLines={1}>
@@ -127,9 +108,11 @@ export default function ProfileScreen() {
             </View>
           </View>
 
-          <Typography type="body-sm" color="muted" className="mt-4">
-            {account.bio}
-          </Typography>
+          {account.bio.length > 0 ? (
+            <Typography type="body-sm" color="muted" className="mt-4">
+              {account.bio}
+            </Typography>
+          ) : null}
 
           <View className="mt-5 flex-row">
             <View className="flex-1 items-center">
@@ -142,7 +125,7 @@ export default function ProfileScreen() {
             </View>
             <View className="flex-1 items-center">
               <Typography type="body" weight="semibold">
-                {formatCount(account.totalListens)}
+                {formatCount(totalListens)}
               </Typography>
               <Typography type="body-xs" color="muted">
                 Listens
@@ -212,7 +195,7 @@ export default function ProfileScreen() {
         ) : (
           <View className="gap-3">
             {myPosts.map((post) => {
-              const creator = CREATORS_BY_ID[post.creatorId] ?? account;
+              const creator = creatorFor(post.creatorId, account) ?? account;
               const isCurrent = post.id === currentId;
               const total = isCurrent && duration > 0 ? duration : post.durationSec;
               return (
@@ -249,7 +232,7 @@ export default function ProfileScreen() {
           <Dialog.Content className="w-full max-w-sm">
             <Dialog.Title>Sign out of Blipp?</Dialog.Title>
             <Dialog.Description>
-              Playback stops and your profile is hidden until you sign back in.
+              Playback stops and any unsaved upload draft is cleared. You can still browse the feed.
             </Dialog.Description>
             <View className="mt-5 flex-row gap-3">
               <Button variant="tertiary" className="flex-1" onPress={() => setIsConfirmOpen(false)}>
@@ -261,7 +244,9 @@ export default function ProfileScreen() {
                 onPress={() => {
                   setIsConfirmOpen(false);
                   stopPlayback();
-                  signOut();
+                  // A signed-out device must not keep the previous user's draft.
+                  useUploadStore.getState().reset();
+                  void signOut();
                 }}
               >
                 <Button.Label>Sign out</Button.Label>

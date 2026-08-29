@@ -5,6 +5,8 @@ export interface Creator {
   initials: string;
   /** Hex gradient pair used for avatars and cover art. */
   gradient: [string, string];
+  /** Uploaded profile photo. Falls back to the gradient initials when absent. */
+  avatarUrl?: string | null;
   bio: string;
   followers: number;
   isVerified: boolean;
@@ -70,7 +72,6 @@ export type FeedCategory = 'for-you' | 'trending' | 'fresh';
 export interface Account extends Creator {
   email: string;
   memberSince: string;
-  totalListens: number;
 }
 
 export interface NewPostInput {
