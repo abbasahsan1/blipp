@@ -56,6 +56,7 @@ let publishedDuration = 0;
 let publishedRate = 1;
 let publishedHasNext = false;
 let publishedHasPrevious = false;
+let publishedSeekButtons = false;
 
 function session(): MediaSession | null {
   if (typeof navigator === 'undefined') return null;
@@ -108,20 +109,59 @@ function applyMetadata(media: MediaSession, metadata: MediaSessionMetadata): voi
   }
 }
 
-/** Buttons that are meaningful whatever the queue looks like. */
+/**
+ * Buttons that are meaningful whatever the queue looks like.
+ *
+ * `seekto` is deliberately here rather than with the skip pair below: it backs
+ * dragging the card's progress bar and adds no button of its own.
+ */
 function bindTransportHandlers(media: MediaSession): void {
   setHandler(media, 'play', () => activeCommands?.play());
   setHandler(media, 'pause', () => activeCommands?.pause());
   setHandler(media, 'stop', () => activeCommands?.stop());
-  setHandler(media, 'seekbackward', (details) => {
-    activeCommands?.seekBy(-(details.seekOffset ?? SEEK_OFFSET_SECONDS));
-  });
-  setHandler(media, 'seekforward', (details) => {
-    activeCommands?.seekBy(details.seekOffset ?? SEEK_OFFSET_SECONDS);
-  });
   setHandler(media, 'seekto', (details) => {
     if (typeof details.seekTime === 'number') activeCommands?.seekTo(details.seekTime);
   });
+}
+
+/**
+ * Chooses between the music-style pair (previous / next post) and the podcast
+ * style one (jump ±15s within the post).
+ *
+ * Android's notification keeps one slot either side of play/pause, and Chrome
+ * fills them with the seek pair the moment those handlers exist — pushing track
+ * skipping out of the card entirely. A feed of posts belongs to the music shape,
+ * so the seek pair is only offered as a fallback, when there is no neighbouring
+ * post to move to. The in-app player keeps its own ±15s controls either way.
+ */
+function bindSkipHandlers(media: MediaSession, hasNext: boolean, hasPrevious: boolean): void {
+  const wantsSeekButtons = !hasNext && !hasPrevious;
+
+  if (hasNext !== publishedHasNext) {
+    setHandler(media, 'nexttrack', hasNext ? () => activeCommands?.next() : null);
+    publishedHasNext = hasNext;
+  }
+  if (hasPrevious !== publishedHasPrevious) {
+    setHandler(media, 'previoustrack', hasPrevious ? () => activeCommands?.previous() : null);
+    publishedHasPrevious = hasPrevious;
+  }
+
+  if (wantsSeekButtons === publishedSeekButtons) return;
+  setHandler(
+    media,
+    'seekbackward',
+    wantsSeekButtons
+      ? (details) => activeCommands?.seekBy(-(details.seekOffset ?? SEEK_OFFSET_SECONDS))
+      : null,
+  );
+  setHandler(
+    media,
+    'seekforward',
+    wantsSeekButtons
+      ? (details) => activeCommands?.seekBy(details.seekOffset ?? SEEK_OFFSET_SECONDS)
+      : null,
+  );
+  publishedSeekButtons = wantsSeekButtons;
 }
 
 function clearHandlers(media: MediaSession): void {
@@ -145,6 +185,7 @@ function resetPublished(): void {
   publishedRate = 1;
   publishedHasNext = false;
   publishedHasPrevious = false;
+  publishedSeekButtons = false;
 }
 
 /**
@@ -175,6 +216,12 @@ export function activateMediaSession(
   resetPublished();
   applyMetadata(media, metadata);
   bindTransportHandlers(media);
+  // The skip pair is decided by the queue, which the first playback sync brings.
+  // Until then leave both pairs unbound so the flags above stay truthful and the
+  // card never shows a button that is about to be swapped out.
+  (['nexttrack', 'previoustrack', 'seekbackward', 'seekforward'] as MediaSessionAction[]).forEach(
+    (action) => setHandler(media, action, null),
+  );
 
   try {
     media.playbackState = 'playing';
@@ -227,18 +274,7 @@ export function syncMediaSessionPlayback(playback: MediaSessionPlayback): void {
     publishedState = state;
   }
 
-  if (playback.hasNext !== publishedHasNext) {
-    setHandler(media, 'nexttrack', playback.hasNext ? () => activeCommands?.next() : null);
-    publishedHasNext = playback.hasNext;
-  }
-  if (playback.hasPrevious !== publishedHasPrevious) {
-    setHandler(
-      media,
-      'previoustrack',
-      playback.hasPrevious ? () => activeCommands?.previous() : null,
-    );
-    publishedHasPrevious = playback.hasPrevious;
-  }
+  bindSkipHandlers(media, playback.hasNext, playback.hasPrevious);
 
   if (typeof media.setPositionState !== 'function') return;
 
