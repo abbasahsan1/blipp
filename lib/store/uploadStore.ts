@@ -3,7 +3,7 @@ import type { Href } from 'expo-router';
 import { create } from 'zustand';
 
 import { insertPost } from '@/lib/posts';
-import { sortPosts, useFeedStore } from '@/lib/store/feedStore';
+import { useFeedStore } from '@/lib/store/feedStore';
 import { usePlayerStore } from '@/lib/store/playerStore';
 import { useSessionStore } from '@/lib/store/sessionStore';
 import { checkAudioFile, type PickedAudioFile, type ValidAudioFile } from '@/lib/upload/audioFile';
@@ -97,8 +97,7 @@ const EMPTY_DRAFT = {
 
 /** Queues the new post so the player is ready when the feed opens. */
 function queuePublished(postId: string): void {
-  const feed = useFeedStore.getState();
-  const queueIds = sortPosts(feed.posts, feed.sort).map((item) => item.id);
+  const queueIds = useFeedStore.getState().posts.map((item) => item.id);
   // Browsers block audio that starts without a user gesture, so web queues it paused.
   usePlayerStore
     .getState()

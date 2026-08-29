@@ -46,6 +46,8 @@ export interface AudioPost {
   durationSec: number;
   plays: number;
   likes: number;
+  /** Seconds listened by everyone, across every session, since it was posted. */
+  totalListenSeconds: number;
   /** Epoch milliseconds. */
   createdAt: number;
   /** Normalized bar heights (0..1) used to draw the waveform. */
@@ -53,8 +55,11 @@ export interface AudioPost {
   isLiked: boolean;
 }
 
-/** Ordering offered by the feed's header chips. */
-export type FeedSort = 'newest' | 'trending';
+/**
+ * Ordering offered by the feed's header chips. 'most_listened' ranks by
+ * accumulated listening time and is the default.
+ */
+export type FeedSort = 'most_listened' | 'newest';
 
 export interface Account extends Creator {
   email: string;

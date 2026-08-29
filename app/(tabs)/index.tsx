@@ -10,19 +10,19 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Button, Chip, Typography } from 'heroui-native';
+import { Button, Chip, Spinner, Typography } from 'heroui-native';
 
 import { AudioReel } from '@/components/audio/AudioReel';
 import { ReelSkeleton } from '@/components/audio/ReelSkeleton';
 import { PALETTE } from '@/lib/palette';
-import { sortPosts, useFeedStore } from '@/lib/store/feedStore';
+import { useFeedStore } from '@/lib/store/feedStore';
 import { usePlayerStore } from '@/lib/store/playerStore';
 import { useSessionStore } from '@/lib/store/sessionStore';
 import type { AudioPost, FeedSort } from '@/lib/types';
 
 const SORTS: { value: FeedSort; label: string }[] = [
+  { value: 'most_listened', label: 'Most Listened' },
   { value: 'newest', label: 'Newest' },
-  { value: 'trending', label: 'Trending' },
 ];
 
 const HEADER_HEIGHT = 46;
@@ -34,6 +34,7 @@ export default function FeedScreen() {
   const sort = useFeedStore((state) => state.sort);
   const isLoading = useFeedStore((state) => state.isLoading);
   const isRefreshing = useFeedStore((state) => state.isRefreshing);
+  const isSorting = useFeedStore((state) => state.isSorting);
   const feedError = useFeedStore((state) => state.error);
   const loadedFor = useFeedStore((state) => state.loadedFor);
   const setSort = useFeedStore((state) => state.setSort);
@@ -63,23 +64,22 @@ export default function FeedScreen() {
   const [activeIndex, setActiveIndex] = useState(0);
   const listRef = useRef<FlatList<AudioPost>>(null);
 
-  const ordered = useMemo(() => sortPosts(posts, sort), [posts, sort]);
-  const queueIds = useMemo(() => ordered.map((post) => post.id), [ordered]);
+  const queueIds = useMemo(() => posts.map((post) => post.id), [posts]);
 
   // Latest values for the scroll handler, which must stay stable across renders.
-  const orderedRef = useRef(ordered);
+  const postsRef = useRef(posts);
   const queueIdsRef = useRef(queueIds);
   const currentIdRef = useRef(currentId);
   const activeIndexRef = useRef(activeIndex);
   const pageHeightRef = useRef(pageHeight);
 
   useEffect(() => {
-    orderedRef.current = ordered;
+    postsRef.current = posts;
     queueIdsRef.current = queueIds;
     currentIdRef.current = currentId;
     activeIndexRef.current = activeIndex;
     pageHeightRef.current = pageHeight;
-  }, [ordered, queueIds, currentId, activeIndex, pageHeight]);
+  }, [posts, queueIds, currentId, activeIndex, pageHeight]);
 
   const headerInset = insets.top + HEADER_HEIGHT;
 
@@ -100,7 +100,7 @@ export default function FeedScreen() {
       const height = pageHeightRef.current;
       if (height <= 0) return;
       const index = Math.max(0, Math.round(event.nativeEvent.contentOffset.y / height));
-      const post = orderedRef.current[index];
+      const post = postsRef.current[index];
       if (!post) return;
       if (index !== activeIndexRef.current) setActiveIndex(index);
       if (post.id !== currentIdRef.current) playPost(post.id, queueIdsRef.current);
@@ -126,26 +126,26 @@ export default function FeedScreen() {
     [toggleLike, viewerId],
   );
 
-  // Queue the top of the feed on first load and whenever the ordering changes.
+  // Queue the top of the feed on first load and whenever the ranking changes.
   // Browsers block audio that starts without a user gesture, so on web the first
   // post is selected but left paused.
   useEffect(() => {
-    if (isLoading) return;
-    const first = orderedRef.current[0];
+    if (isLoading || isSorting) return;
+    const first = postsRef.current[0];
     if (!first) return;
     setActiveIndex(0);
     listRef.current?.scrollToOffset({ offset: 0, animated: false });
     playPost(first.id, queueIdsRef.current, { autoplay: Platform.OS !== 'web' });
-  }, [sort, isLoading, playPost]);
+  }, [sort, isLoading, isSorting, playPost]);
 
   // Follow the player when a track ends or is picked from another screen.
   useEffect(() => {
     if (!currentId || pageHeight <= 0) return;
-    const index = ordered.findIndex((post) => post.id === currentId);
+    const index = posts.findIndex((post) => post.id === currentId);
     if (index < 0 || index === activeIndex) return;
     setActiveIndex(index);
     listRef.current?.scrollToOffset({ offset: index * pageHeight, animated: true });
-  }, [currentId, ordered, activeIndex, pageHeight]);
+  }, [currentId, posts, activeIndex, pageHeight]);
 
   const renderItem = useCallback(
     ({ item, index }: { item: AudioPost; index: number }) => {
@@ -198,7 +198,7 @@ export default function FeedScreen() {
     <View className="bg-background flex-1" onLayout={handleLayout}>
       {pageHeight <= 0 ? null : isLoading ? (
         <ReelSkeleton height={pageHeight} topInset={headerInset} bottomInset={0} />
-      ) : feedError && ordered.length === 0 ? (
+      ) : feedError && posts.length === 0 ? (
         <View
           className="flex-1 items-center justify-center px-10"
           style={{ paddingTop: headerInset }}
@@ -214,7 +214,7 @@ export default function FeedScreen() {
             <Button.Label>Try again</Button.Label>
           </Button>
         </View>
-      ) : ordered.length === 0 ? (
+      ) : posts.length === 0 ? (
         <View
           className="flex-1 items-center justify-center px-10"
           style={{ paddingTop: headerInset }}
@@ -230,7 +230,7 @@ export default function FeedScreen() {
       ) : (
         <FlatList
           ref={listRef}
-          data={ordered}
+          data={posts}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           pagingEnabled
@@ -272,11 +272,13 @@ export default function FeedScreen() {
                 size="sm"
                 color="accent"
                 variant={isActive ? 'primary' : 'tertiary'}
-                onPress={() => setSort(item.value)}
+                disabled={isSorting}
+                onPress={() => void setSort(item.value, viewerId)}
                 accessibilityRole="button"
-                accessibilityState={{ selected: isActive }}
+                accessibilityState={{ selected: isActive, disabled: isSorting }}
               >
                 <Chip.Label>{item.label}</Chip.Label>
+                {isActive && isSorting ? <Spinner size="sm" /> : null}
               </Chip>
             );
           })}

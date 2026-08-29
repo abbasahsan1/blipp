@@ -5,6 +5,7 @@ import {
   Pause,
   Play,
   RotateCcw,
+  Timer,
   TriangleAlert,
 } from 'lucide-react-native';
 import { memo } from 'react';
@@ -15,7 +16,7 @@ import { Avatar } from '@/components/Avatar';
 import { CoverArt } from '@/components/audio/CoverArt';
 import { Waveform } from '@/components/audio/Waveform';
 import { LinearGradient } from '@/components/ui/primitives/LinearGradient';
-import { formatCount, formatDuration, formatRelativeTime } from '@/lib/format';
+import { formatCount, formatDuration, formatListenTime, formatRelativeTime } from '@/lib/format';
 import { PALETTE } from '@/lib/palette';
 import type { AudioPost, Creator } from '@/lib/types';
 import { singleSliderValue } from '@/lib/utils';
@@ -198,6 +199,14 @@ function AudioReelComponent({
                 {formatDuration(total)} · {formatRelativeTime(post.createdAt)}
               </Typography>
             </View>
+
+            {/* How much time listeners have spent on this post, all together. */}
+            <View className="mt-2 flex-row items-center gap-1.5">
+              <Timer color={PALETTE.muted} size={13} />
+              <Typography type="body-xs" color="muted" numberOfLines={1}>
+                {formatListenTime(post.totalListenSeconds)}
+              </Typography>
+            </View>
           </View>
 
           <View className="w-14 items-center gap-4">
@@ -216,18 +225,12 @@ function AudioReelComponent({
                     size={20}
                   />
                 </View>
-                <Typography type="body-xs" color="muted">
-                  {formatCount(post.likes)}
-                </Typography>
               </Pressable>
             ) : (
               <View className="items-center gap-1">
                 <View className="bg-surface/70 h-11 w-11 items-center justify-center rounded-full">
                   <Heart color={PALETTE.muted} size={20} />
                 </View>
-                <Typography type="body-xs" color="muted">
-                  {formatCount(post.likes)}
-                </Typography>
               </View>
             )}
 

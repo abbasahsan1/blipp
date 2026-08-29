@@ -9,6 +9,7 @@ import {
   RotateCcw,
   SkipBack,
   SkipForward,
+  Timer,
   TriangleAlert,
   X,
 } from 'lucide-react-native';
@@ -39,7 +40,7 @@ import {
 import { CoverArt } from '@/components/audio/CoverArt';
 import { Waveform } from '@/components/audio/Waveform';
 import { AnimatedView } from '@/components/ui/primitives/AnimatedView';
-import { formatCount, formatDuration } from '@/lib/format';
+import { formatCount, formatDuration, formatListenTime } from '@/lib/format';
 import { PALETTE } from '@/lib/palette';
 import type { AudioPost, Creator } from '@/lib/types';
 import { cn, singleSliderValue } from '@/lib/utils';
@@ -355,34 +356,22 @@ export function FullPlayer({
             </ControlButton>
           </View>
 
-          <View className="mt-7 flex-row items-center gap-6">
+          <View className="mt-7 flex-row items-center gap-4">
             {onToggleLike ? (
               <Pressable
                 onPress={onToggleLike}
                 hitSlop={8}
                 accessibilityRole="button"
                 accessibilityLabel={post.isLiked ? 'Remove like' : 'Like this audio'}
-                className="flex-row items-center gap-2"
               >
                 <Heart
                   color={post.isLiked ? PALETTE.danger : PALETTE.foreground}
                   fill={post.isLiked ? PALETTE.danger : 'transparent'}
                   size={20}
                 />
-                <Typography
-                  type="body-sm"
-                  className={post.isLiked ? 'text-danger' : 'text-foreground'}
-                >
-                  {formatCount(post.likes)}
-                </Typography>
               </Pressable>
             ) : (
-              <View className="flex-row items-center gap-2">
-                <Heart color={PALETTE.muted} size={20} />
-                <Typography type="body-sm" color="muted">
-                  {formatCount(post.likes)}
-                </Typography>
-              </View>
+              <Heart color={PALETTE.muted} size={20} />
             )}
 
             <View className="flex-row items-center gap-2">
@@ -392,19 +381,24 @@ export function FullPlayer({
               </Typography>
             </View>
 
-            <View className="flex-1 items-end">
-              <Pressable
-                onPress={onCycleSpeed}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel="Change playback speed"
-                className="bg-surface-secondary h-10 w-12 items-center justify-center rounded-full"
-              >
-                <Typography type="body-xs" weight="semibold">
-                  {speed}x
-                </Typography>
-              </Pressable>
+            <View className="flex-1 flex-row items-center gap-1.5">
+              <Timer color={PALETTE.muted} size={16} />
+              <Typography type="body-xs" color="muted" numberOfLines={1}>
+                {formatListenTime(post.totalListenSeconds)}
+              </Typography>
             </View>
+
+            <Pressable
+              onPress={onCycleSpeed}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Change playback speed"
+              className="bg-surface-secondary h-10 w-12 items-center justify-center rounded-full"
+            >
+              <Typography type="body-xs" weight="semibold">
+                {speed}x
+              </Typography>
+            </Pressable>
           </View>
 
           {queue.length > 0 ? (

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import {
   setAudioModeAsync,
   useAudioPlayer,
@@ -7,6 +8,7 @@ import {
 } from 'expo-audio';
 
 import { registerAudioBridge } from '@/lib/audio/bridge';
+import { flushListenSeconds, recordListenSeconds } from '@/lib/audio/listenTracker';
 import {
   activateMediaSession,
   clearMediaSession,
@@ -62,6 +64,11 @@ export function useAudioEngine(): void {
   const intentRef = useRef({ playing: false, confirmed: false });
   /** Whether the media session accepted this player and owns a notification. */
   const sessionActiveRef = useRef(false);
+  /** Last position seen for the current post, used to measure what was heard. */
+  const listenRef = useRef<{ postId: string | null; position: number }>({
+    postId: null,
+    position: 0,
+  });
 
   // Keep playing when the app is backgrounded or the screen locks.
   useEffect(() => {
@@ -180,6 +187,41 @@ export function useAudioEngine(): void {
     if (!currentId || !status.isLoaded || !status.playing) return;
     useFeedStore.getState().countPlay(currentId);
   }, [currentId, status.isLoaded, status.playing]);
+
+  /**
+   * Measure how much of a post was really heard: the position the player moved
+   * through between two status updates while it was playing. Anything larger
+   * than a plausible step is a seek or a skip, not listening, so it is ignored.
+   */
+  useEffect(() => {
+    if (!currentId || !status.isLoaded) return;
+
+    const previous = listenRef.current;
+    listenRef.current = { postId: currentId, position: status.currentTime };
+    if (previous.postId !== currentId || !status.playing) return;
+
+    const heard = status.currentTime - previous.position;
+    const plausible = Math.max(3, 5 * speedRef.current);
+    if (heard > 0 && heard <= plausible) recordListenSeconds(currentId, heard);
+  }, [currentId, status.currentTime, status.playing, status.isLoaded]);
+
+  // Pausing ends a stretch of listening, so it is logged straight away rather
+  // than waiting for the next batch.
+  useEffect(() => {
+    if (isPlaying) return;
+    flushListenSeconds();
+  }, [isPlaying]);
+
+  // Skipping to another post, or stopping, logs what was heard of the last one.
+  useEffect(() => () => flushListenSeconds(), [currentId]);
+
+  // Leaving the app mid-listen must not lose the seconds already heard.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') flushListenSeconds();
+    });
+    return () => subscription.remove();
+  }, []);
 
   // A source that never loads is a failure the user can retry.
   useEffect(() => {

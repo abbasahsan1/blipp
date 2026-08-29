@@ -16,13 +16,19 @@ function messageFor(error: unknown): string {
 }
 
 interface FeedState {
-  /** Public feed: every account's posts, newest first. */
+  /**
+   * Public feed: every account's posts, held in the order the database returned
+   * them for the current sort. Live listening totals never re-order it, so the
+   * reel a listener is on cannot move under them.
+   */
   posts: AudioPost[];
   /** The signed-in user's own posts, shown on the Profile tab. */
   myPosts: AudioPost[];
   sort: FeedSort;
   isLoading: boolean;
   isRefreshing: boolean;
+  /** A sort switch is fetching; the current list stays visible meanwhile. */
+  isSorting: boolean;
   hasLoaded: boolean;
   error: string | null;
   /** Viewer the loaded feed belongs to, so likes are reloaded when it changes. */
@@ -32,7 +38,8 @@ interface FeedState {
 
   loadFeed: (viewerId: string | null) => Promise<void>;
   refresh: (viewerId: string | null) => Promise<void>;
-  setSort: (sort: FeedSort) => void;
+  /** Re-ranks the feed in the database, since the top of it lives there. */
+  setSort: (sort: FeedSort, viewerId: string | null) => Promise<void>;
   loadMyPosts: (userId: string) => Promise<void>;
   /** Optimistic like toggle, reconciled with the count the server returns. */
   toggleLike: (postId: string, viewerId: string | null) => Promise<void>;
@@ -41,6 +48,8 @@ interface FeedState {
   /** Deletes one of the user's own posts. Returns an error message on failure. */
   deletePost: (postId: string) => Promise<string | null>;
   countPlay: (postId: string) => void;
+  /** Accepts the accumulated listening time the server confirmed for a post. */
+  setListenTotal: (postId: string, totalListenSeconds: number) => void;
   /** Replaces a post's stored duration with the real length of its audio file. */
   syncDuration: (postId: string, durationSec: number) => void;
   /** Drops everything tied to the previous account after signing out. */
@@ -61,9 +70,11 @@ export const useFeedStore = create<FeedState>((set, get) => {
   return {
     posts: [],
     myPosts: [],
-    sort: 'newest',
+    // What people actually listened to leads the feed; recency is the alternative.
+    sort: 'most_listened',
     isLoading: false,
     isRefreshing: false,
+    isSorting: false,
     hasLoaded: false,
     error: null,
     loadedFor: null,
@@ -74,7 +85,7 @@ export const useFeedStore = create<FeedState>((set, get) => {
       if (get().isLoading) return;
       set({ isLoading: true, error: null });
       try {
-        const posts = await fetchPosts({ viewerId });
+        const posts = await fetchPosts({ viewerId, sort: get().sort });
         set({ posts, isLoading: false, hasLoaded: true, loadedFor: viewerId });
       } catch (error) {
         // loadedFor moves even on failure: the screen shows a retry action
@@ -92,23 +103,32 @@ export const useFeedStore = create<FeedState>((set, get) => {
       if (get().isRefreshing) return;
       set({ isRefreshing: true, error: null });
       try {
-        const posts = await fetchPosts({ viewerId });
+        const posts = await fetchPosts({ viewerId, sort: get().sort });
         set({ posts, isRefreshing: false, loadedFor: viewerId });
       } catch (error) {
         set({ isRefreshing: false, error: messageFor(error), loadedFor: viewerId });
       }
     },
 
-    setSort: (sort) => {
-      if (get().sort === sort) return;
-      set({ sort });
+    setSort: async (sort, viewerId) => {
+      const previous = get().sort;
+      if (previous === sort || get().isSorting) return;
+      set({ sort, isSorting: true, error: null });
+      try {
+        const posts = await fetchPosts({ viewerId, sort });
+        set({ posts, isSorting: false, loadedFor: viewerId });
+      } catch (error) {
+        // The list on screen is still the old ranking, so the chip goes back to
+        // matching it rather than claiming an order that never arrived.
+        set({ sort: previous, isSorting: false, error: messageFor(error) });
+      }
     },
 
     loadMyPosts: async (userId) => {
       if (get().isMineLoading) return;
       set({ isMineLoading: true, mineError: null });
       try {
-        const myPosts = await fetchPosts({ ownerId: userId, viewerId: userId });
+        const myPosts = await fetchPosts({ ownerId: userId, viewerId: userId, sort: 'newest' });
         set({ myPosts, isMineLoading: false });
       } catch (error) {
         set({ isMineLoading: false, mineError: messageFor(error) });
@@ -148,9 +168,12 @@ export const useFeedStore = create<FeedState>((set, get) => {
 
     addPost: (post) => {
       set((state) => ({
-        posts: [post, ...state.posts.filter((item) => item.id !== post.id)],
+        // A brand new post has no listening time yet, so the feed switches to
+        // newest ordering — the one order it is guaranteed to lead.
+        posts: [post, ...state.posts.filter((item) => item.id !== post.id)].sort(
+          (a, b) => b.createdAt - a.createdAt,
+        ),
         myPosts: [post, ...state.myPosts.filter((item) => item.id !== post.id)],
-        // A brand new post is the newest, so the feed shows it first.
         sort: 'newest',
       }));
     },
@@ -179,6 +202,15 @@ export const useFeedStore = create<FeedState>((set, get) => {
       countedPlays.add(postId);
       patch(postId, (post) => ({ ...post, plays: post.plays + 1 }));
       void countPostPlay(postId);
+    },
+
+    setListenTotal: (postId, totalListenSeconds) => {
+      if (!Number.isFinite(totalListenSeconds) || totalListenSeconds < 0) return;
+      const rounded = Math.round(totalListenSeconds);
+      // Never counts down: other listeners' seconds may already be in the total.
+      patch(postId, (post) =>
+        post.totalListenSeconds >= rounded ? post : { ...post, totalListenSeconds: rounded },
+      );
     },
 
     syncDuration: (postId, durationSec) => {
@@ -212,12 +244,4 @@ export function selectPost(
     state.posts.find((post) => post.id === postId) ??
     state.myPosts.find((post) => post.id === postId)
   );
-}
-
-/** Rows come back newest first, so only 'trending' needs re-ordering. */
-export function sortPosts(posts: AudioPost[], sort: FeedSort): AudioPost[] {
-  if (sort === 'trending') {
-    return [...posts].sort((a, b) => b.plays - a.plays || b.likes - a.likes);
-  }
-  return posts;
 }

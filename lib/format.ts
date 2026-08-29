@@ -22,6 +22,26 @@ export function formatCount(value: number): string {
   return String(value);
 }
 
+/**
+ * Accumulated listening time as a label, e.g. "12.4k min listened". Minutes are
+ * the unit people can compare at a glance; seconds only show up before the first
+ * full minute has been listened.
+ */
+export function formatListenTime(totalSeconds: number): string {
+  const safe = Math.max(0, Math.floor(totalSeconds));
+  if (safe === 0) return 'No listens yet';
+
+  const minutes = safe / 60;
+  if (minutes < 1) return `${safe}s listened`;
+  if (minutes < 10) return `${minutes.toFixed(1)} min listened`;
+  if (minutes < 1_000) return `${Math.round(minutes)} min listened`;
+  if (minutes < 1_000_000) {
+    const thousands = minutes / 1_000;
+    return `${thousands.toFixed(thousands < 10 ? 1 : 0)}k min listened`;
+  }
+  return `${(minutes / 1_000_000).toFixed(1)}M min listened`;
+}
+
 export function formatRelativeTime(timestamp: number, now: number = Date.now()): string {
   const diffMinutes = Math.max(0, Math.round((now - timestamp) / 60_000));
   if (diffMinutes < 1) return 'just now';

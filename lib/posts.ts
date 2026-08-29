@@ -1,13 +1,13 @@
 import { waveformForId } from '@/lib/audio/waveform';
 import { bilt } from '@/lib/bilt';
 import { type ProfileRow, toCreator } from '@/lib/profile/identity';
-import type { AudioPost, Creator } from '@/lib/types';
+import type { AudioPost, Creator, FeedSort } from '@/lib/types';
 
 /** Storage bucket holding every published audio file. */
 export const AUDIO_BUCKET = 'audio';
 
 const POST_COLUMNS =
-  'id, user_id, title, description, category, duration_sec, audio_path, plays, likes, created_at';
+  'id, user_id, title, description, category, duration_sec, audio_path, plays, likes, total_listen_seconds, created_at';
 const PROFILE_COLUMNS = 'id, display_name, handle, avatar_url, bio, created_at';
 /** How many posts one page of the feed holds. */
 const PAGE_SIZE = 100;
@@ -27,6 +27,8 @@ interface PostRow {
   audio_path: string;
   plays: number;
   likes: number;
+  /** A bigint column, which some responses carry as a string. */
+  total_listen_seconds: number | string;
   created_at: string;
 }
 
@@ -48,6 +50,7 @@ function toAudioPost(row: PostRow, creator: Creator, isLiked: boolean): AudioPos
     durationSec: Math.max(0, Math.round(row.duration_sec)),
     plays: row.plays,
     likes: row.likes,
+    totalListenSeconds: Math.max(0, Math.round(Number(row.total_listen_seconds) || 0)),
     createdAt: new Date(row.created_at).getTime(),
     waveform: waveformForId(row.id),
     isLiked,
@@ -83,17 +86,24 @@ export interface FetchPostsOptions {
   ownerId?: string;
   /** Signed-in user, so their own likes come back marked. Null when browsing anonymously. */
   viewerId?: string | null;
+  /** Ranking. Defaults to newest first, which is what a profile wants. */
+  sort?: FeedSort;
 }
 
-/** Newest posts first. Public: anyone signed in or not sees every account's posts. */
-export async function fetchPosts({ ownerId, viewerId }: FetchPostsOptions = {}): Promise<
+/**
+ * A page of posts in the requested order. Public: anyone signed in or not sees
+ * every account's posts. Ranking happens in the database so the top of the feed
+ * is the top of the whole table, not just of what was already loaded.
+ */
+export async function fetchPosts({ ownerId, viewerId, sort }: FetchPostsOptions = {}): Promise<
   AudioPost[]
 > {
-  let query = bilt
-    .from('posts')
-    .select(POST_COLUMNS)
-    .order('created_at', { ascending: false })
-    .limit(PAGE_SIZE);
+  let query = bilt.from('posts').select(POST_COLUMNS);
+
+  if (sort === 'most_listened') {
+    query = query.order('total_listen_seconds', { ascending: false });
+  }
+  query = query.order('created_at', { ascending: false }).limit(PAGE_SIZE);
 
   if (ownerId) query = query.eq('user_id', ownerId);
 
@@ -178,4 +188,34 @@ export async function setPostLiked(postId: string, liked: boolean): Promise<Like
 /** Counts one listen. Open to anonymous listeners, who cannot write posts otherwise. */
 export async function countPostPlay(postId: string): Promise<void> {
   await bilt.rpc('increment_post_plays', { p_post_id: postId });
+}
+
+export interface ListenOutcome {
+  ok: boolean;
+  /** The post's accumulated listening time after this batch, when reported. */
+  totalListenSeconds: number | null;
+}
+
+/**
+ * Records seconds actually listened to a post within one listening session, and
+ * adds them to the post's running total. Open to anonymous listeners; the row is
+ * tied to the account as well when the listener is signed in.
+ */
+export async function logListenSeconds(
+  postId: string,
+  sessionId: string,
+  seconds: number,
+): Promise<ListenOutcome> {
+  const whole = Math.floor(seconds);
+  if (whole < 1) return { ok: true, totalListenSeconds: null };
+
+  const { data, error } = await bilt.rpc('log_listen_seconds', {
+    p_post_id: postId,
+    p_session_id: sessionId,
+    p_seconds: whole,
+  });
+  if (error) return { ok: false, totalListenSeconds: null };
+
+  const total = Number(data);
+  return { ok: true, totalListenSeconds: Number.isFinite(total) ? total : null };
 }

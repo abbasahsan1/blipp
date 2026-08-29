@@ -1,4 +1,4 @@
-import { Headphones, Heart, Pause, Play, Trash2 } from 'lucide-react-native';
+import { Headphones, Heart, Pause, Play, Timer, Trash2 } from 'lucide-react-native';
 import { memo } from 'react';
 import { Pressable, View } from 'react-native';
 import { PressableFeedback, Typography } from 'heroui-native';
@@ -6,7 +6,7 @@ import { PressableFeedback, Typography } from 'heroui-native';
 import { CoverArt } from '@/components/audio/CoverArt';
 import { EqualizerBars } from '@/components/audio/EqualizerBars';
 import { Waveform } from '@/components/audio/Waveform';
-import { formatCount, formatDuration, formatRelativeTime } from '@/lib/format';
+import { formatCount, formatDuration, formatListenTime, formatRelativeTime } from '@/lib/format';
 import { PALETTE } from '@/lib/palette';
 import type { AudioPost, Creator } from '@/lib/types';
 
@@ -89,7 +89,15 @@ function AudioPostCardComponent({
         </View>
       </View>
 
-      <View className="mt-3 flex-row items-center gap-4">
+      <View className="mt-3 flex-row items-center gap-3">
+        {/* Accumulated listening time is the headline number on a post. */}
+        <View className="flex-1 flex-row items-center gap-1.5">
+          <Timer color={PALETTE.muted} size={14} />
+          <Typography type="body-xs" color="muted" numberOfLines={1}>
+            {formatListenTime(post.totalListenSeconds)}
+          </Typography>
+        </View>
+
         <View className="flex-row items-center gap-1.5">
           <Headphones color={PALETTE.muted} size={14} />
           <Typography type="body-xs" color="muted">
@@ -102,19 +110,15 @@ function AudioPostCardComponent({
           hitSlop={10}
           accessibilityRole="button"
           accessibilityLabel={post.isLiked ? 'Remove like' : 'Like this audio'}
-          className="flex-row items-center gap-1.5"
         >
           <Heart
             color={post.isLiked ? PALETTE.danger : PALETTE.muted}
             fill={post.isLiked ? PALETTE.danger : 'transparent'}
             size={14}
           />
-          <Typography type="body-xs" className={post.isLiked ? 'text-danger' : 'text-muted'}>
-            {formatCount(post.likes)}
-          </Typography>
         </Pressable>
 
-        <View className="flex-1 flex-row items-center justify-end gap-2">
+        <View className="flex-row items-center gap-2">
           <View className="bg-surface-tertiary rounded-full px-2 py-0.5">
             <Typography type="body-xs">{post.category}</Typography>
           </View>
